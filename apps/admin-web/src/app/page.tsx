@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [deploying, setDeploying] = useState(false);
   const [deployMsg, setDeployMsg] = useState<string | null>(null);
+  const [enablingRoaming, setEnablingRoaming] = useState(false);
+  const [roamingMsg, setRoamingMsg] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -75,6 +77,25 @@ export default function DashboardPage() {
   const enabledCount = senders.filter((s) => s.enabled).length;
   const lastSuccess = senders.filter((s) => s.lastDeployedStatus === "success").length;
   const lastFail = senders.filter((s) => s.lastDeployedStatus === "failed").length;
+
+  const enableRoaming = async () => {
+    if (
+      !confirm(
+        "This will run Set-OrganizationConfig -PostponeRoamingSignaturesUntilLater $false on your M365 tenant via Microsoft Graph. Continue?"
+      )
+    )
+      return;
+    setEnablingRoaming(true);
+    setRoamingMsg(null);
+    try {
+      const result = await api.admin.enableRoamingSignatures();
+      setRoamingMsg(result.message);
+    } catch (err: any) {
+      setRoamingMsg(`Failed: ${err.message}`);
+    } finally {
+      setEnablingRoaming(false);
+    }
+  };
 
   const deployAll = async () => {
     if (enabledCount === 0) return;
@@ -229,6 +250,43 @@ export default function DashboardPage() {
           href="/settings"
         />
       </div>
+
+      {/* Tenant setup — Roaming Signatures */}
+      {outlookConfigured && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginBottom: 8 }}>Tenant setup</h3>
+          <p style={{ fontSize: 13, color: "#737373", marginBottom: 16 }}>
+            One-time fix: enable Microsoft 365 Roaming Signatures for your
+            tenant. Required before "Deploy to Outlook" works. Equivalent to
+            running <code>Set-OrganizationConfig -PostponeRoamingSignaturesUntilLater $false</code>{" "}
+            in PowerShell.
+          </p>
+          <button
+            className="btn btn-secondary"
+            onClick={enableRoaming}
+            disabled={enablingRoaming}
+          >
+            {enablingRoaming ? "Enabling…" : "Enable Roaming Signatures"}
+          </button>
+          {roamingMsg && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 14px",
+                borderRadius: 8,
+                fontSize: 13,
+                background: roamingMsg.startsWith("Failed") ? "#FEF2F2" : "#F0FDF4",
+                color: roamingMsg.startsWith("Failed") ? "#DC2626" : "#16A34A",
+                border: `1px solid ${
+                  roamingMsg.startsWith("Failed") ? "#FECACA" : "#BBF7D0"
+                }`,
+              }}
+            >
+              {roamingMsg}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Deploy all */}
       {outlookConfigured && enabledCount > 0 && (

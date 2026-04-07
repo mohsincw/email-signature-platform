@@ -124,6 +124,15 @@ export const api = {
         }
       ),
   },
+  admin: {
+    enableRoamingSignatures: () =>
+      apiFetch<{
+        success: boolean;
+        message: string;
+        previousValue: boolean | null;
+        currentValue: boolean | null;
+      }>("/admin/enable-roaming-signatures", { method: "POST" }),
+  },
 };
 
 /**
