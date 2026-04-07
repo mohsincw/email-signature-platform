@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "@esp/shared-types",
     "@esp/database",
     "@esp/signature-renderer",
+    "@esp/signature-png",
   ],
   // Prisma + other Node-only libs should stay external (not bundled)
   serverExternalPackages: [
