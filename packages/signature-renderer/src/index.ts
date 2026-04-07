@@ -39,14 +39,17 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
   const font =
     "'Myriad Pro', 'Source Sans Pro', 'Open Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif";
 
-  // Left column: logo + badge (centred horizontally inside the cell)
-  let leftCol = '';
+  // Left column: logo + badge (wrapped in a fixed-width div so centring
+  // is reliable across all email clients regardless of how the parent
+  // <td> auto-sizes).
+  let leftCol = '<div style="width:170px;text-align:center;margin:0 auto;">';
   if (logoUrl) {
     leftCol += `<img src="${esc(logoUrl)}" alt="chaiiwala" width="140" style="display:block;width:140px;height:auto;margin:0 auto;" />`;
   }
   if (badgeUrl) {
     leftCol += `<img src="${esc(badgeUrl)}" alt="5 Star Franchisee Satisfaction" width="120" style="display:block;width:120px;height:auto;margin:14px auto 0;" />`;
   }
+  leftCol += '</div>';
 
   // Right column: contact details
   let rightCol = '';
@@ -96,8 +99,8 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
     '<div style="margin-top:20px;">',
     '<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">',
     '<tr>',
-    // Left column — logo + badge, vertically centred and horizontally centred
-    `<td align="center" style="vertical-align:middle;text-align:center;padding-right:24px;border-right:2px solid #000000;width:150px;" valign="middle">`,
+    // Left column — fixed 200px wide so logo and badge always centre cleanly
+    `<td align="center" style="vertical-align:middle;text-align:center;padding:0 28px 0 0;border-right:2px solid #000000;width:200px;" valign="middle" width="200">`,
     leftCol,
     '</td>',
     // Right column — contact info

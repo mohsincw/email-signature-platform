@@ -21,6 +21,41 @@ async function loadMyriadProFont(): Promise<ArrayBuffer> {
   return cachedFont;
 }
 
+/**
+ * Pre-fetch a remote image and inline it as a base64 data URL. Satori
+ * can technically fetch image src URLs itself, but it's flaky in
+ * serverless (no consistent fetch agent) and silently drops the image
+ * on failure. Pre-fetching server-side is bulletproof.
+ */
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      console.warn(`[png-renderer] image fetch failed ${res.status}: ${url}`);
+      return null;
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    let contentType = res.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) {
+      // Sniff from extension as a fallback
+      const ext = url.split(".").pop()?.toLowerCase().split("?")[0];
+      contentType =
+        ext === "jpg" || ext === "jpeg"
+          ? "image/jpeg"
+          : ext === "gif"
+          ? "image/gif"
+          : ext === "svg"
+          ? "image/svg+xml"
+          : "image/png";
+    }
+    return `data:${contentType};base64,${buf.toString("base64")}`;
+  } catch (err) {
+    console.warn(`[png-renderer] image fetch threw: ${url}`, err);
+    return null;
+  }
+}
+
 interface PngInput {
   senderName: string;
   senderTitle: string | null;
@@ -40,27 +75,31 @@ interface PngInput {
  * indexable / accessible. The image is the "designer-quality" part.
  */
 export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
-  const fontData = await loadMyriadProFont();
+  const [fontData, logoDataUrl, badgeDataUrl] = await Promise.all([
+    loadMyriadProFont(),
+    fetchAsDataUrl(input.logoUrl),
+    fetchAsDataUrl(input.badgeUrl),
+  ]);
 
   const FONT = "Myriad Pro";
   const BLACK = "#000000";
 
   const leftChildren: any[] = [];
-  if (input.logoUrl) {
+  if (logoDataUrl) {
     leftChildren.push({
       type: "img",
       props: {
-        src: input.logoUrl,
+        src: logoDataUrl,
         width: 140,
         style: { width: 140, objectFit: "contain" },
       },
     });
   }
-  if (input.badgeUrl) {
+  if (badgeDataUrl) {
     leftChildren.push({
       type: "img",
       props: {
-        src: input.badgeUrl,
+        src: badgeDataUrl,
         width: 110,
         style: { width: 110, marginTop: 14, objectFit: "contain" },
       },

@@ -104,26 +104,35 @@ export default function GeneratePage() {
                   style={{
                     verticalAlign: "middle",
                     textAlign: "center",
-                    paddingRight: 24,
+                    padding: "0 28px 0 0",
                     borderRight: "2px solid #000000",
-                    width: 170,
+                    width: 200,
                   }}
                   valign="middle"
+                  width={200}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={logoSrc}
-                    alt="chaiiwala"
-                    width={140}
-                    style={{ display: "block", width: 140, height: "auto", margin: "0 auto" }}
-                  />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={badgeSrc}
-                    alt="5 Star Franchisee Satisfaction"
-                    width={120}
-                    style={{ display: "block", width: 120, height: "auto", margin: "14px auto 0" }}
-                  />
+                  <div
+                    style={{
+                      width: 170,
+                      textAlign: "center",
+                      margin: "0 auto",
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={logoSrc}
+                      alt="chaiiwala"
+                      width={140}
+                      style={{ display: "block", width: 140, height: "auto", margin: "0 auto" }}
+                    />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={badgeSrc}
+                      alt="5 Star Franchisee Satisfaction"
+                      width={120}
+                      style={{ display: "block", width: 120, height: "auto", margin: "14px auto 0" }}
+                    />
+                  </div>
                 </td>
 
                 {/* ── RIGHT: editable contact details ── */}

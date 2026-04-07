@@ -25,6 +25,9 @@ export default function SendersPage() {
   const [outlookConfigured, setOutlookConfigured] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [deployMessage, setDeployMessage] = useState<string | null>(null);
+  const [deployErrors, setDeployErrors] = useState<
+    { name: string; email: string; error: string }[]
+  >([]);
 
   const refresh = () =>
     api.senders.list().then((data) => {
@@ -124,14 +127,22 @@ export default function SendersPage() {
     if (ids.length === 0) return;
     setDeploying(true);
     setDeployMessage(null);
+    setDeployErrors([]);
     try {
       const results = await api.outlook.deploy(ids);
       const ok = results.filter((r) => r.success).length;
-      const fail = results.filter((r) => !r.success).length;
+      const failures = results.filter((r) => !r.success);
       setDeployMessage(
-        fail === 0
+        failures.length === 0
           ? `Deployed ${ok} signature${ok !== 1 ? "s" : ""} to Outlook`
-          : `${ok} deployed, ${fail} failed`
+          : `${ok} deployed, ${failures.length} failed`
+      );
+      setDeployErrors(
+        failures.map((r) => ({
+          name: r.senderName,
+          email: r.senderEmail,
+          error: r.error ?? "Unknown error",
+        }))
       );
       await refresh();
     } catch (err: any) {
@@ -234,7 +245,16 @@ export default function SendersPage() {
             }`,
           }}
         >
-          {deployMessage}
+          <div style={{ fontWeight: 600 }}>{deployMessage}</div>
+          {deployErrors.length > 0 && (
+            <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+              {deployErrors.map((e, i) => (
+                <li key={i} style={{ marginTop: 4 }}>
+                  <strong>{e.name}</strong> ({e.email}): {e.error}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
