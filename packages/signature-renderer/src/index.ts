@@ -32,7 +32,12 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
     disclaimer,
   } = input;
 
-  const font = "'Helvetica Neue', Helvetica, Arial, sans-serif";
+  // Brand-approved primary typeface is Myriad Pro. Email clients can't load
+  // arbitrary web fonts, so we list it first (Adobe Creative Cloud users have
+  // it installed) and fall back to the closest near-equivalents available on
+  // Mac, Windows, and Linux.
+  const font =
+    "'Myriad Pro', 'Source Sans Pro', 'Open Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif";
 
   // Left column: logo + badge
   let leftCol = '';
@@ -51,7 +56,7 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
 
   // Title — uppercase, letter-spaced, 12px
   if (senderTitle) {
-    rightCol += `<p style="margin:0 0 18px;font-family:${font};font-size:12px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:3px;line-height:1.3;">${esc(senderTitle)}</p>`;
+    rightCol += `<p style="margin:0 0 18px;font-family:${font};font-size:12px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:2px;line-height:1.3;">${esc(senderTitle)}</p>`;
   }
 
   // Phone — bold, 26px
@@ -64,12 +69,12 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
 
   // Address line 1 — 11px
   if (addressLine1) {
-    rightCol += `<p style="margin:0;font-family:${font};font-size:11px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:2px;line-height:1.6;">${esc(addressLine1)}</p>`;
+    rightCol += `<p style="margin:0;font-family:${font};font-size:11px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:1.5px;line-height:1.6;">${esc(addressLine1)}</p>`;
   }
 
   // Address line 2 — 11px
   if (addressLine2) {
-    rightCol += `<p style="margin:0 0 22px;font-family:${font};font-size:11px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:2px;line-height:1.6;">${esc(addressLine2)}</p>`;
+    rightCol += `<p style="margin:0 0 22px;font-family:${font};font-size:11px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:1.5px;line-height:1.6;">${esc(addressLine2)}</p>`;
   }
 
   // Website — "chaiiwala" bold 20px, rest normal 16px
