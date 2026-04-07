@@ -29,7 +29,22 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error("Session expired");
   }
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    // Try to extract a useful error message from the JSON response body
+    let detail = res.statusText;
+    try {
+      const body = await res.text();
+      if (body) {
+        try {
+          const parsed = JSON.parse(body);
+          detail = parsed?.message || parsed?.error || body;
+        } catch {
+          detail = body;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(`${res.status}: ${detail}`);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : (undefined as T);
