@@ -18,13 +18,15 @@
     "@esp/signature-renderer": "workspace:*",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@prisma/client": "^6.0.0",
+    "@resvg/resvg-js": "^2.6.2",
     "bcryptjs": "^3.0.3",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.7.0",
     "next": "^15.0.0",
     "nodemailer": "^6.10.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "satori": "^0.12.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

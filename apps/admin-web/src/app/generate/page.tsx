@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Copy, CheckCircle } from "lucide-react";
+import { Copy, CheckCircle, Image as ImageIcon } from "lucide-react";
 import type { SenderDto, GlobalSettingsDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
 
@@ -65,7 +65,8 @@ export default function GeneratePage() {
   const logoSrc = s.logoUrl || "/sig-logo.png";
   const badgeSrc = s.badgeUrl || "/sig-badge.png";
 
-  const font = "'Helvetica Neue', Helvetica, Arial, sans-serif";
+  const font =
+    "'Myriad Pro', 'Source Sans Pro', 'Open Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif";
 
   return (
     <div>
@@ -97,21 +98,31 @@ export default function GeneratePage() {
           <table cellPadding={0} cellSpacing={0} border={0} style={{ borderCollapse: "collapse" }}>
             <tbody>
               <tr>
-                {/* ── LEFT: logo + badge ── */}
-                <td style={{ verticalAlign: "top", paddingRight: 24, borderRight: "2px solid #000000", width: 150 }} valign="top">
+                {/* ── LEFT: logo + badge ── centred horizontally and vertically */}
+                <td
+                  align="center"
+                  style={{
+                    verticalAlign: "middle",
+                    textAlign: "center",
+                    paddingRight: 24,
+                    borderRight: "2px solid #000000",
+                    width: 170,
+                  }}
+                  valign="middle"
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={logoSrc}
                     alt="chaiiwala"
                     width={140}
-                    style={{ display: "block", width: 140, height: "auto" }}
+                    style={{ display: "block", width: 140, height: "auto", margin: "0 auto" }}
                   />
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={badgeSrc}
                     alt="5 Star Franchisee Satisfaction"
                     width={120}
-                    style={{ display: "block", width: 120, height: "auto", marginTop: 10 }}
+                    style={{ display: "block", width: 120, height: "auto", margin: "14px auto 0" }}
                   />
                 </td>
 
@@ -160,7 +171,7 @@ export default function GeneratePage() {
                       fontWeight: 600,
                       color: "#000",
                       textTransform: "uppercase",
-                      letterSpacing: 3,
+                      letterSpacing: 2,
                       lineHeight: 1.3,
                       boxSizing: "border-box",
                     }}
@@ -197,7 +208,7 @@ export default function GeneratePage() {
                     fontWeight: 600,
                     color: "#000",
                     textTransform: "uppercase",
-                    letterSpacing: 2,
+                    letterSpacing: 1.5,
                     lineHeight: 1.6,
                   }}>
                     {s.addressLine1}
@@ -211,7 +222,7 @@ export default function GeneratePage() {
                     fontWeight: 600,
                     color: "#000",
                     textTransform: "uppercase",
-                    letterSpacing: 2,
+                    letterSpacing: 1.5,
                     lineHeight: 1.6,
                   }}>
                     {s.addressLine2}
@@ -232,11 +243,25 @@ export default function GeneratePage() {
               </tr>
             </tbody>
           </table>
+          {s.disclaimer && (
+            <div
+              style={{
+                marginTop: 22,
+                maxWidth: 640,
+                fontFamily: font,
+                fontSize: 11,
+                fontStyle: "italic",
+                lineHeight: 1.5,
+                color: "#525252",
+              }}
+              dangerouslySetInnerHTML={{ __html: s.disclaimer }}
+            />
+          )}
         </div>
       </div>
 
-      {/* Copy button */}
-      <div style={{ marginTop: 16 }}>
+      {/* Action buttons */}
+      <div style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
         <button
           className="btn btn-primary"
           onClick={handleCopyHtml}
@@ -246,7 +271,24 @@ export default function GeneratePage() {
           {copied ? <CheckCircle size={16} strokeWidth={2} /> : <Copy size={16} strokeWidth={2} />}
           {copied ? "Copied!" : "Copy Signature HTML"}
         </button>
+        {selectedId && (
+          <a
+            className="btn btn-secondary"
+            href={`/api/senders/${selectedId}/preview.png`}
+            target="_blank"
+            rel="noreferrer"
+            download={`${name || "signature"}.png`}
+          >
+            <ImageIcon size={16} strokeWidth={2} />
+            Download PNG (pixel-perfect)
+          </a>
+        )}
       </div>
+      <p style={{ marginTop: 8, fontSize: 11, color: "#A3A3A3" }}>
+        The PNG is rendered server-side using the actual Myriad Pro font, so it
+        looks identical to your designer's image — but downloading requires the
+        sender to be saved (pick from the dropdown above).
+      </p>
     </div>
   );
 }
