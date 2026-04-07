@@ -5,7 +5,7 @@ import type {
   GlobalSettingsDto,
 } from "@esp/shared-types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_BASE = "/api";
 
 function getAuthHeader(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -14,7 +14,7 @@ function getAuthHeader(): Record<string, string> {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -23,7 +23,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
   if (res.status === 401 && typeof window !== "undefined") {
-    // Token expired or invalid — redirect to login
     localStorage.removeItem("esp_token");
     localStorage.removeItem("esp_user");
     window.location.href = "/login";
@@ -33,7 +32,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(`API error: ${res.status} ${res.statusText}`);
   }
   const text = await res.text();
-  return text ? JSON.parse(text) : undefined;
+  return text ? JSON.parse(text) : (undefined as T);
 }
 
 export const api = {
@@ -53,34 +52,59 @@ export const api = {
     delete: (id: string) =>
       apiFetch<void>(`/senders/${id}`, { method: "DELETE" }),
     getUploadUrl: (id: string) =>
-      apiFetch<{ uploadUrl: string; key: string }>(`/senders/${id}/upload-url`, {
-        method: "POST",
-      }),
+      apiFetch<{ uploadUrl: string; key: string }>(
+        `/senders/${id}/upload-url`,
+        { method: "POST" }
+      ),
     getPreview: (id: string) =>
       apiFetch<{ html: string }>(`/senders/${id}/preview`),
-    renderSignature: (data: { name: string; title?: string; phone?: string; phone2?: string }) =>
+    renderSignature: (data: {
+      name: string;
+      title?: string;
+      phone?: string;
+      phone2?: string;
+    }) =>
       apiFetch<{ html: string }>("/senders/render", {
         method: "POST",
         body: JSON.stringify(data),
       }),
     sendTestEmail: (id: string, recipientEmail: string) =>
-      apiFetch<{ success: boolean; message: string }>(`/senders/${id}/send-test`, {
-        method: "POST",
-        body: JSON.stringify({ recipientEmail }),
-      }),
+      apiFetch<{ success: boolean; message: string }>(
+        `/senders/${id}/send-test`,
+        {
+          method: "POST",
+          body: JSON.stringify({ recipientEmail }),
+        }
+      ),
   },
   outlook: {
     getStatus: () =>
       apiFetch<{ configured: boolean; tenantId?: string }>("/outlook/status"),
     deploy: (senderIds: string[]) =>
-      apiFetch<{ senderId: string; senderEmail: string; senderName: string; success: boolean; error?: string; deployedAt: string }[]>(
-        "/outlook/deploy",
-        { method: "POST", body: JSON.stringify({ senderIds }) }
-      ),
+      apiFetch<
+        {
+          senderId: string;
+          senderEmail: string;
+          senderName: string;
+          success: boolean;
+          error?: string;
+          deployedAt: string;
+        }[]
+      >("/outlook/deploy", {
+        method: "POST",
+        body: JSON.stringify({ senderIds }),
+      }),
     getHistory: (senderId: string) =>
-      apiFetch<{ id: string; senderId: string; target: string; status: string; error: string | null; deployedAt: string }[]>(
-        `/outlook/history/${senderId}`
-      ),
+      apiFetch<
+        {
+          id: string;
+          senderId: string;
+          target: string;
+          status: string;
+          error: string | null;
+          deployedAt: string;
+        }[]
+      >(`/outlook/history/${senderId}`),
   },
   settings: {
     get: () => apiFetch<GlobalSettingsDto>("/settings"),
