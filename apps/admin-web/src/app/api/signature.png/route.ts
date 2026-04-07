@@ -57,8 +57,9 @@ export async function GET(req: NextRequest) {
     return new Response(new Uint8Array(png), {
       headers: {
         "Content-Type": "image/png",
-        // Cache for 5 min so frequent emails from the same sender hit cache
-        "Cache-Control": "public, max-age=300, s-maxage=300",
+        // Short cache so size/style tweaks propagate quickly. Bump to
+        // a longer max-age once the rendering is locked in.
+        "Cache-Control": "public, max-age=60, s-maxage=60",
       },
     });
   } catch (err) {

@@ -40,11 +40,13 @@ function buildDisclaimerHtml(disclaimer: string): string {
   // matched by the rule exception.
   const safeDisclaimer = (disclaimer || "").trim();
 
-  const parts = [
-    `<!--${DEDUP_MARKER}-->`,
-    `<br/>`,
-    `<img src="${imgUrl}" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" alt="Chaiiwala signature" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;margin:0;padding:0;" />`,
-  ];
+  // Wrap the image in a fixed-width single-cell table — Outlook respects
+  // <table width> way more reliably than <img width>, and forces the
+  // 2x-resolution PNG to render at the intended 314x154 CSS size so it
+  // stays sharp on retina without ballooning in older clients.
+  const imgCell = `<table cellpadding="0" cellspacing="0" border="0" width="${SIG_WIDTH}" style="border-collapse:collapse;width:${SIG_WIDTH}px;"><tr><td width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="padding:0;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;line-height:0;font-size:0;"><img src="${imgUrl}" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" alt="Chaiiwala signature" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;margin:0;padding:0;" /></td></tr></table>`;
+
+  const parts = [`<!--${DEDUP_MARKER}-->`, `<br/>`, imgCell];
 
   if (safeDisclaimer) {
     parts.push(
