@@ -108,6 +108,12 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   const LOGO_W = 110;
   const BADGE_W = 92;
 
+  // Brand rule: names and job titles are always lowercase regardless
+  // of how they're stored. Satori doesn't support CSS text-transform,
+  // so we normalise at the data layer.
+  const displayName = (input.senderName ?? "").toLowerCase();
+  const displayTitle = input.senderTitle ? input.senderTitle.toLowerCase() : null;
+
   const leftChildren: any[] = [];
   if (logoDataUrl) {
     leftChildren.push({
@@ -141,10 +147,10 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
         lineHeight: 1.1,
         marginBottom: 2,
       },
-      children: input.senderName,
+      children: displayName,
     },
   });
-  if (input.senderTitle) {
+  if (displayTitle) {
     rightChildren.push({
       type: "div",
       props: {
@@ -152,11 +158,10 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
           fontSize: 9,
           fontWeight: 900,
           color: BLACK,
-          textTransform: "uppercase",
-          letterSpacing: 1.4,
+          letterSpacing: 1.1,
           marginBottom: 10,
         },
-        children: input.senderTitle,
+        children: displayTitle,
       },
     });
   }

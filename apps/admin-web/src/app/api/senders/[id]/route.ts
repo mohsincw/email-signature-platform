@@ -50,12 +50,18 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       }
     }
 
+    // Brand rule: names and job titles are always lowercase.
     const sender = await prisma.sender.update({
       where: { id },
       data: {
-        email: body.email ?? undefined,
-        name: body.name ?? undefined,
-        title: body.title ?? undefined,
+        email: body.email ? String(body.email).toLowerCase().trim() : undefined,
+        name: body.name ? String(body.name).toLowerCase().trim() : undefined,
+        title:
+          body.title !== undefined
+            ? body.title
+              ? String(body.title).toLowerCase().trim()
+              : null
+            : undefined,
         phone: body.phone ?? undefined,
         phone2: body.phone2 ?? undefined,
         enabled: body.enabled ?? undefined,

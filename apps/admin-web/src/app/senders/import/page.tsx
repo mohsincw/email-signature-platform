@@ -99,6 +99,10 @@ function parseCsvOrTsv(text: string): ParsedRow[] {
       if (!field) continue;
       (row as any)[field] = cells[i];
     }
+    // Brand rule: names and job titles are always lowercase.
+    if (row.name) row.name = row.name.toLowerCase().trim();
+    if (row.title) row.title = row.title.toLowerCase().trim();
+    if (row.email) row.email = row.email.toLowerCase().trim();
     if (!row.email) row._error = "Missing email";
     else if (!row.name) row._error = "Missing name";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email))

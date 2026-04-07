@@ -230,6 +230,7 @@ export default function EditorPage() {
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
+                    textTransform: "lowercase",
                   }}
                 >
                   {x.name}
@@ -241,6 +242,7 @@ export default function EditorPage() {
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
+                    textTransform: "lowercase",
                   }}
                 >
                   {x.title || x.email}
@@ -278,7 +280,7 @@ export default function EditorPage() {
       <div style={{ flex: 1, padding: "40px 48px 80px", minWidth: 0 }}>
         <div className="page-header">
           <div>
-            <div className="page-title">Editor</div>
+            <div className="page-title">editor</div>
             <div className="page-subtitle">
               {selectedId
                 ? `Editing ${name}`
@@ -441,6 +443,7 @@ export default function EditorPage() {
                           color: "#000",
                           lineHeight: 1.15,
                           boxSizing: "border-box",
+                          textTransform: "lowercase",
                         }}
                       />
                       <input
@@ -450,7 +453,7 @@ export default function EditorPage() {
                           setTitle(e.target.value);
                           setCopied(false);
                         }}
-                        placeholder="JOB TITLE"
+                        placeholder="job title"
                         style={{
                           display: "block",
                           width: "100%",
@@ -463,8 +466,8 @@ export default function EditorPage() {
                           fontSize: 12,
                           fontWeight: 600,
                           color: "#000",
-                          textTransform: "uppercase",
-                          letterSpacing: 2,
+                          textTransform: "lowercase",
+                          letterSpacing: 1.5,
                           lineHeight: 1.3,
                           boxSizing: "border-box",
                         }}

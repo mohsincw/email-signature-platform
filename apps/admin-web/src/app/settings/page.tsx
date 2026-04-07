@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Cloud, Zap, AlertCircle } from "lucide-react";
+import { Check } from "lucide-react";
 import type { GlobalSettingsDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
 import { ImageDropZone } from "../components/ImageDropZone";
@@ -11,41 +11,12 @@ export default function SettingsPage() {
   const [original, setOriginal] = useState<GlobalSettingsDto | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
-  const [outlookConfigured, setOutlookConfigured] = useState(false);
-
-  // Server-side mode state
-  const [serverSideEnabled, setServerSideEnabled] = useState(false);
-  const [serverSideStatusLoaded, setServerSideStatusLoaded] = useState(false);
-  const [togglingServerSide, setTogglingServerSide] = useState(false);
-  const [serverSideMsg, setServerSideMsg] = useState<string | null>(null);
-
-  // Roaming Signatures state
-  const [enablingRoaming, setEnablingRoaming] = useState(false);
-  const [roamingMsg, setRoamingMsg] = useState<string | null>(null);
 
   useEffect(() => {
     api.settings.get().then((s) => {
       setSettings(s);
       setOriginal(s);
     });
-    api.outlook
-      .getStatus()
-      .then((s) => {
-        setOutlookConfigured(s.configured);
-        if (s.configured) {
-          api.admin
-            .serverSideStatus()
-            .then((st) => {
-              setServerSideEnabled(st.enabled);
-              setServerSideStatusLoaded(true);
-            })
-            .catch(() => {
-              setServerSideEnabled(false);
-              setServerSideStatusLoaded(true);
-            });
-        }
-      })
-      .catch(() => {});
   }, []);
 
   const dirty = useMemo(
@@ -68,50 +39,6 @@ export default function SettingsPage() {
     setSaving(false);
   };
 
-  const enableRoaming = async () => {
-    if (
-      !confirm(
-        "Enable Roaming Signatures on your M365 tenant? This is a one-off and required for Outlook auto-deploy to work."
-      )
-    )
-      return;
-    setEnablingRoaming(true);
-    setRoamingMsg(null);
-    try {
-      const result = await api.admin.enableRoamingSignatures();
-      setRoamingMsg(result.message);
-    } catch (err: any) {
-      setRoamingMsg(`Failed: ${err.message}`);
-    } finally {
-      setEnablingRoaming(false);
-    }
-  };
-
-  const toggleServerSide = async () => {
-    const turningOn = !serverSideEnabled;
-    if (
-      !confirm(
-        turningOn
-          ? "Enable Server-Side Mode? This appends a signature to every outbound email at the Exchange Online level. Wait ~5 min to propagate."
-          : "Disable Server-Side Mode? Outbound emails will stop getting auto-appended signatures."
-      )
-    )
-      return;
-    setTogglingServerSide(true);
-    setServerSideMsg(null);
-    try {
-      const result = turningOn
-        ? await api.admin.enableServerSide()
-        : await api.admin.disableServerSide();
-      setServerSideMsg(result.message);
-      setServerSideEnabled(turningOn);
-    } catch (err: any) {
-      setServerSideMsg(`Failed: ${err.message}`);
-    } finally {
-      setTogglingServerSide(false);
-    }
-  };
-
   if (!settings)
     return (
       <div className="page">
@@ -123,9 +50,10 @@ export default function SettingsPage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">Settings</div>
+          <div className="page-title">settings</div>
           <div className="page-subtitle">
-            Brand assets, office address, disclaimer, and Outlook integration
+            Brand assets, office address, and legal disclaimer applied to
+            every signature
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -149,7 +77,7 @@ export default function SettingsPage() {
       <form id="settings-form" onSubmit={handleSubmit}>
         {/* ── Brand assets ─────────────────────────────────── */}
         <div className="card">
-          <div className="card-title">Brand assets</div>
+          <div className="card-title">brand assets</div>
           <div className="card-subtitle">
             Logo and badge that appear in every signature. Drop files here or
             paste from your clipboard.
@@ -178,7 +106,7 @@ export default function SettingsPage() {
 
         {/* ── Office address ───────────────────────────────── */}
         <div className="card">
-          <div className="card-title">Office</div>
+          <div className="card-title">office</div>
           <div className="card-subtitle">
             Address and website used in every signature
           </div>
@@ -219,7 +147,7 @@ export default function SettingsPage() {
 
         {/* ── Disclaimer ────────────────────────────────────── */}
         <div className="card">
-          <div className="card-title">Email disclaimer</div>
+          <div className="card-title">email disclaimer</div>
           <div className="card-subtitle">
             Plain text or basic HTML. Renders as Arial 8pt italic grey below
             every signature.
@@ -236,8 +164,8 @@ export default function SettingsPage() {
               padding: "12px 14px",
               fontSize: 13,
               fontFamily: "inherit",
-              borderRadius: 8,
-              border: "1px solid var(--grey-300)",
+              borderRadius: 10,
+              border: "1px solid var(--karak-beige-200)",
               resize: "vertical",
               lineHeight: 1.55,
               boxSizing: "border-box",
@@ -246,171 +174,6 @@ export default function SettingsPage() {
           />
         </div>
       </form>
-
-      {/* ── Mail flow ─────────────────────────────────────── */}
-      {outlookConfigured && (
-        <div className="card">
-          <div className="card-title">Mail flow</div>
-          <div className="card-subtitle">
-            Microsoft 365 integration toggles
-          </div>
-
-          {/* Roaming Signatures */}
-          <div
-            style={{
-              display: "flex",
-              gap: 16,
-              padding: "16px 0",
-              borderBottom: "1px solid var(--grey-100)",
-              alignItems: "flex-start",
-            }}
-          >
-            <Zap
-              size={18}
-              strokeWidth={2}
-              style={{
-                color: "var(--grey-500)",
-                flexShrink: 0,
-                marginTop: 2,
-              }}
-            />
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  fontWeight: 500,
-                  marginBottom: 2,
-                  color: "var(--grey-900)",
-                }}
-              >
-                Roaming Signatures
-              </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--grey-500)",
-                  marginBottom: 10,
-                }}
-              >
-                One-off setup needed before any Outlook deploy works. Equivalent
-                to <code>Set-OrganizationConfig -PostponeRoamingSignaturesUntilLater $false</code>.
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={enableRoaming}
-                disabled={enablingRoaming}
-              >
-                {enablingRoaming ? "Enabling…" : "Enable Roaming Signatures"}
-              </button>
-              {roamingMsg && (
-                <div
-                  className={`banner ${
-                    roamingMsg.startsWith("Failed")
-                      ? "banner-danger"
-                      : "banner-success"
-                  }`}
-                  style={{ marginTop: 12, marginBottom: 0 }}
-                >
-                  {roamingMsg}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Server-side mode */}
-          <div
-            style={{
-              display: "flex",
-              gap: 16,
-              padding: "16px 0 0",
-              alignItems: "flex-start",
-            }}
-          >
-            <Cloud
-              size={18}
-              strokeWidth={2}
-              style={{
-                color: "var(--grey-500)",
-                flexShrink: 0,
-                marginTop: 2,
-              }}
-            />
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 2,
-                }}
-              >
-                <span style={{ fontWeight: 500, color: "var(--grey-900)" }}>
-                  Server-Side Mode
-                </span>
-                {serverSideStatusLoaded && (
-                  <span
-                    className={`badge ${serverSideEnabled ? "badge-active" : "badge-inactive"}`}
-                  >
-                    {serverSideEnabled ? "Active" : "Inactive"}
-                  </span>
-                )}
-              </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--grey-500)",
-                  marginBottom: 10,
-                }}
-              >
-                Append a signature to every outbound email at the Exchange
-                Online level — works on every device and email client.
-                Recommended for organisation-wide rollout.
-              </div>
-              <button
-                type="button"
-                className={
-                  serverSideEnabled
-                    ? "btn btn-secondary btn-sm"
-                    : "btn btn-primary btn-sm"
-                }
-                onClick={toggleServerSide}
-                disabled={togglingServerSide}
-              >
-                {togglingServerSide
-                  ? serverSideEnabled
-                    ? "Disabling…"
-                    : "Enabling…"
-                  : serverSideEnabled
-                  ? "Disable"
-                  : "Enable"}
-              </button>
-              {serverSideMsg && (
-                <div
-                  className={`banner ${
-                    serverSideMsg.startsWith("Failed")
-                      ? "banner-danger"
-                      : "banner-success"
-                  }`}
-                  style={{ marginTop: 12, marginBottom: 0 }}
-                >
-                  {serverSideMsg}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!outlookConfigured && (
-        <div className="banner banner-warning">
-          <AlertCircle size={16} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
-            Outlook integration is not configured. Set <code>AZURE_TENANT_ID</code>,{" "}
-            <code>AZURE_CLIENT_ID</code>, and <code>AZURE_CLIENT_SECRET</code>{" "}
-            in Vercel to enable Mail flow features.
-          </div>
-        </div>
-      )}
     </div>
   );
 }

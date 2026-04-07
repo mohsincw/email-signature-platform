@@ -1,46 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   MoreHorizontal,
-  Cloud,
   Trash2,
   Copy,
   Pencil,
   Power,
   Upload,
   Plus,
-  CheckCircle2,
-  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import type { SenderDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
 
-function relativeTime(iso: string | null): string {
-  if (!iso) return "Never";
-  const t = new Date(iso).getTime();
-  const diff = Date.now() - t;
-  const min = 60_000,
-    hour = 60 * min,
-    day = 24 * hour;
-  if (diff < min) return "just now";
-  if (diff < hour) return `${Math.floor(diff / min)}m ago`;
-  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
-  if (diff < 30 * day) return `${Math.floor(diff / day)}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
 export default function PeoplePage() {
   const [senders, setSenders] = useState<SenderDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [outlookConfigured, setOutlookConfigured] = useState(false);
-  const [deploying, setDeploying] = useState(false);
-  const [deployMessage, setDeployMessage] = useState<string | null>(null);
-  const [deployErrors, setDeployErrors] = useState<
-    { name: string; email: string; error: string }[]
-  >([]);
   const [openKebab, setOpenKebab] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
@@ -52,13 +29,8 @@ export default function PeoplePage() {
 
   useEffect(() => {
     refresh();
-    api.outlook
-      .getStatus()
-      .then((s) => setOutlookConfigured(s.configured))
-      .catch(() => {});
   }, []);
 
-  // Close kebab menu when clicking outside
   useEffect(() => {
     if (!openKebab) return;
     const onClick = () => setOpenKebab(null);
@@ -78,15 +50,6 @@ export default function PeoplePage() {
   }, [senders, search]);
 
   const toggleEnabled = async (sender: SenderDto) => {
-    if (
-      sender.enabled &&
-      outlookConfigured &&
-      !confirm(
-        `Disable ${sender.name}?\n\nThis will also turn off their signature in Outlook.`
-      )
-    ) {
-      return;
-    }
     const updated = await api.senders.update(sender.id, {
       enabled: !sender.enabled,
     });
@@ -95,10 +58,12 @@ export default function PeoplePage() {
 
   const deleteSender = async (id: string) => {
     const sender = senders.find((s) => s.id === id);
-    const msg = outlookConfigured
-      ? `Delete ${sender?.name}?\n\nThis will also clear their signature from Outlook. Permanent.`
-      : `Delete ${sender?.name}?`;
-    if (!confirm(msg)) return;
+    if (
+      !confirm(
+        `Delete ${sender?.name}?\n\nTheir future emails will go out without a signature. Existing sent emails are unaffected.`
+      )
+    )
+      return;
     await api.senders.delete(id);
     setSenders((prev) => prev.filter((s) => s.id !== id));
     setSelected((prev) => {
@@ -109,10 +74,7 @@ export default function PeoplePage() {
   };
 
   const duplicateSender = async (sender: SenderDto) => {
-    const newEmail = prompt(
-      `Email for the duplicated sender:`,
-      sender.email
-    );
+    const newEmail = prompt(`Email for the duplicated sender:`, sender.email);
     if (!newEmail || newEmail === sender.email) return;
     try {
       const created = await api.senders.create({
@@ -149,10 +111,12 @@ export default function PeoplePage() {
 
   const deleteSelected = async () => {
     if (selected.size === 0) return;
-    const msg = outlookConfigured
-      ? `Delete ${selected.size} ${selected.size > 1 ? "people" : "person"}?\n\nThis will also clear their signatures from Outlook. Permanent.`
-      : `Delete ${selected.size} ${selected.size > 1 ? "people" : "person"}?`;
-    if (!confirm(msg)) return;
+    if (
+      !confirm(
+        `Delete ${selected.size} ${selected.size > 1 ? "people" : "person"}?\n\nTheir future emails will go out without a signature.`
+      )
+    )
+      return;
     try {
       await Promise.all(
         Array.from(selected).map((id) => api.senders.delete(id))
@@ -163,37 +127,6 @@ export default function PeoplePage() {
       alert("Some deletions failed");
     }
   };
-
-  const deployIds = async (ids: string[]) => {
-    if (ids.length === 0) return;
-    setDeploying(true);
-    setDeployMessage(null);
-    setDeployErrors([]);
-    try {
-      const results = await api.outlook.deploy(ids);
-      const ok = results.filter((r) => r.success).length;
-      const failures = results.filter((r) => !r.success);
-      setDeployMessage(
-        failures.length === 0
-          ? `Deployed ${ok} ${ok !== 1 ? "signatures" : "signature"} to Outlook`
-          : `${ok} deployed, ${failures.length} failed`
-      );
-      setDeployErrors(
-        failures.map((r) => ({
-          name: r.senderName,
-          email: r.senderEmail,
-          error: r.error ?? "Unknown error",
-        }))
-      );
-      await refresh();
-    } catch (err: any) {
-      setDeployMessage(`Deploy failed: ${err.message}`);
-    } finally {
-      setDeploying(false);
-    }
-  };
-
-  const deploySelected = () => deployIds(Array.from(selected));
 
   if (loading) {
     return (
@@ -207,10 +140,10 @@ export default function PeoplePage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">People</div>
+          <div className="page-title">people</div>
           <div className="page-subtitle">
-            {senders.length} {senders.length === 1 ? "person" : "people"} in your
-            organisation
+            {senders.length} {senders.length === 1 ? "person" : "people"} —
+            their signature is auto-applied to every outbound email
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -225,36 +158,6 @@ export default function PeoplePage() {
         </div>
       </div>
 
-      {!outlookConfigured && (
-        <div className="banner banner-warning">
-          <AlertCircle size={16} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
-            Outlook auto-deploy isn&apos;t configured. Set the{" "}
-            <code>AZURE_*</code> environment variables in Vercel to enable
-            one-click deployment from this page.
-          </div>
-        </div>
-      )}
-
-      {deployMessage && (
-        <div
-          className={`banner ${deployMessage.includes("failed") ? "banner-danger" : "banner-success"}`}
-        >
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 500 }}>{deployMessage}</div>
-            {deployErrors.length > 0 && (
-              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                {deployErrors.map((e, i) => (
-                  <li key={i} style={{ marginTop: 4, fontSize: 12 }}>
-                    <strong>{e.name}</strong> ({e.email}): {e.error}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Search bar */}
       <div style={{ marginBottom: 16, maxWidth: 320 }}>
         <input
@@ -266,8 +169,8 @@ export default function PeoplePage() {
             width: "100%",
             padding: "9px 14px",
             fontSize: 13,
-            border: "1px solid var(--grey-200)",
-            borderRadius: 8,
+            border: "1px solid var(--karak-beige-200)",
+            borderRadius: 10,
             background: "var(--white)",
             outline: "none",
             fontFamily: "inherit",
@@ -291,8 +194,8 @@ export default function PeoplePage() {
               </th>
               <th>Name</th>
               <th>Email</th>
+              <th>Phone</th>
               <th>Status</th>
-              <th>Last deployed</th>
               <th style={{ width: 60 }}></th>
             </tr>
           </thead>
@@ -302,8 +205,9 @@ export default function PeoplePage() {
                 key={sender.id}
                 style={{
                   background: selected.has(sender.id)
-                    ? "var(--grey-50)"
+                    ? "var(--chaii-brown-50)"
                     : undefined,
+                  opacity: sender.enabled ? 1 : 0.55,
                 }}
               >
                 <td>
@@ -314,48 +218,36 @@ export default function PeoplePage() {
                   />
                 </td>
                 <td>
-                  <div style={{ fontWeight: 500, color: "var(--grey-900)" }}>
+                  <div
+                    style={{
+                      fontWeight: 500,
+                      color: "var(--grey-900)",
+                      textTransform: "lowercase",
+                    }}
+                  >
                     {sender.name}
                   </div>
                   {sender.title && (
-                    <div style={{ fontSize: 12, color: "var(--grey-500)" }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--grey-500)",
+                        textTransform: "lowercase",
+                      }}
+                    >
                       {sender.title}
                     </div>
                   )}
                 </td>
                 <td style={{ color: "var(--grey-600)" }}>{sender.email}</td>
+                <td style={{ color: "var(--grey-600)", fontSize: 13 }}>
+                  {sender.phone ?? "—"}
+                </td>
                 <td>
                   <span
                     className={`badge ${sender.enabled ? "badge-active" : "badge-inactive"}`}
                   >
-                    {sender.enabled ? "Active" : "Disabled"}
-                  </span>
-                </td>
-                <td
-                  style={{
-                    fontSize: 12,
-                    color:
-                      sender.lastDeployedStatus === "failed"
-                        ? "var(--danger)"
-                        : sender.lastDeployedStatus === "success"
-                        ? "var(--success)"
-                        : "var(--grey-500)",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    {sender.lastDeployedStatus === "success" && (
-                      <CheckCircle2 size={12} strokeWidth={2.5} />
-                    )}
-                    {sender.lastDeployedStatus === "failed" && (
-                      <AlertCircle size={12} strokeWidth={2.5} />
-                    )}
-                    {relativeTime(sender.lastDeployedAt)}
+                    {sender.enabled ? "active" : "disabled"}
                   </span>
                 </td>
                 <td>
@@ -390,18 +282,6 @@ export default function PeoplePage() {
                           <Copy size={13} />
                           Duplicate
                         </button>
-                        {outlookConfigured && (
-                          <button
-                            className="kebab-item"
-                            onClick={() => {
-                              setOpenKebab(null);
-                              deployIds([sender.id]);
-                            }}
-                          >
-                            <Cloud size={13} />
-                            Deploy to Outlook
-                          </button>
-                        )}
                         <button
                           className="kebab-item"
                           onClick={() => {
@@ -470,16 +350,8 @@ export default function PeoplePage() {
       {/* Floating action bar */}
       {selected.size > 0 && (
         <div className="action-bar">
-          <span className="count">
-            {selected.size} selected
-          </span>
+          <span className="count">{selected.size} selected</span>
           <span className="divider" />
-          {outlookConfigured && (
-            <button onClick={deploySelected} disabled={deploying}>
-              <Cloud size={14} />
-              {deploying ? "Deploying…" : "Deploy"}
-            </button>
-          )}
           <button onClick={deleteSelected} className="danger">
             <Trash2 size={14} />
             Delete

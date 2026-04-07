@@ -54,12 +54,12 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
   // Right column: contact details
   let rightCol = '';
 
-  // Name — bold, lowercase, 30px
-  rightCol += `<p style="margin:0 0 6px;font-family:${font};font-size:30px;font-weight:700;color:#000000;line-height:1.15;">${esc(senderName)}</p>`;
+  // Name — bold, lowercase, 30px (brand rule: always lowercase)
+  rightCol += `<p style="margin:0 0 6px;font-family:${font};font-size:30px;font-weight:700;color:#000000;line-height:1.15;text-transform:lowercase;">${esc(senderName)}</p>`;
 
-  // Title — uppercase, letter-spaced, 12px
+  // Title — lowercase, letter-spaced, 12px (brand rule: always lowercase)
   if (senderTitle) {
-    rightCol += `<p style="margin:0 0 18px;font-family:${font};font-size:12px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:2px;line-height:1.3;">${esc(senderTitle)}</p>`;
+    rightCol += `<p style="margin:0 0 18px;font-family:${font};font-size:12px;font-weight:600;color:#000000;text-transform:lowercase;letter-spacing:1.5px;line-height:1.3;">${esc(senderTitle)}</p>`;
   }
 
   // Phone — bold, 26px

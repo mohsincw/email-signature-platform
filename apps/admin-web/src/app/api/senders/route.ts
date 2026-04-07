@@ -32,11 +32,13 @@ export async function POST(req: NextRequest) {
     if (!body?.email || !body?.name) {
       throw new ApiError(400, "email and name are required");
     }
+    // Brand rule: names and job titles are always lowercase regardless
+    // of how they're typed in. Normalise at the DB layer.
     const sender = await prisma.sender.create({
       data: {
-        email: String(body.email),
-        name: String(body.name),
-        title: body.title ?? null,
+        email: String(body.email).toLowerCase().trim(),
+        name: String(body.name).toLowerCase().trim(),
+        title: body.title ? String(body.title).toLowerCase().trim() : null,
         phone: body.phone ?? null,
         phone2: body.phone2 ?? null,
       },
