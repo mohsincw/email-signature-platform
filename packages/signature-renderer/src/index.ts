@@ -92,7 +92,7 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
   }
 
   const disclaimerBlock = disclaimer
-    ? `\n<div style="margin-top:14px;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${disclaimer}</div>`
+    ? `\n<div style="margin:6px 0 0 0;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${disclaimer}</div>`
     : '';
 
   return [

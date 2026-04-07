@@ -333,7 +333,7 @@ export default function GeneratePage() {
           {s.disclaimer && (
             <div
               style={{
-                marginTop: 14,
+                marginTop: 6,
                 maxWidth: 640,
                 fontFamily: "Arial, Helvetica, sans-serif",
                 fontSize: 8,

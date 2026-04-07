@@ -38,11 +38,11 @@ export function buildPngSignatureHtml(
   const base = getPublicBaseUrl();
   const pngUrl = `${base}/api/senders/${senderId}/preview.png`;
 
-  const imgTag = `<img src="${pngUrl}" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`;
+  const imgTag = `<img src="${pngUrl}" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;margin:0;padding:0;" />`;
 
   const disclaimerBlock = disclaimer
-    ? `<div style="margin-top:14px;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${disclaimer}</div>`
+    ? `<div style="margin:6px 0 0 0;padding:0;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${disclaimer}</div>`
     : "";
 
-  return `<div style="margin-top:20px;">${imgTag}${disclaimerBlock}</div>`;
+  return `<div style="margin-top:8px;">${imgTag}${disclaimerBlock}</div>`;
 }

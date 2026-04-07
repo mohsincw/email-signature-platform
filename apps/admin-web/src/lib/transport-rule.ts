@@ -42,13 +42,13 @@ function buildDisclaimerHtml(disclaimer: string): string {
 
   const parts = [
     `<!--${DEDUP_MARKER}-->`,
-    `<br/><br/>`,
-    `<img src="${imgUrl}" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" alt="Chaiiwala signature" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`,
+    `<br/>`,
+    `<img src="${imgUrl}" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" alt="Chaiiwala signature" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;margin:0;padding:0;" />`,
   ];
 
   if (safeDisclaimer) {
     parts.push(
-      `<div style="margin-top:14px;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${safeDisclaimer}</div>`
+      `<div style="margin:6px 0 0 0;padding:0;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${safeDisclaimer}</div>`
     );
   }
 

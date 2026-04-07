@@ -297,10 +297,12 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     ],
   });
 
-  // 3x display size = ~942px wide PNG. Crisp on retina, downscaled by
-  // every email client to the 314px display width.
+  // Render the PNG at the exact display size so Outlook (which ignores
+  // the <img width=...> attribute and uses natural pixel size) shows it
+  // at 314x154. The trade-off is slightly softer on retina, but the
+  // size is consistent across every email client.
   const resvg = new Resvg(svg, {
-    fitTo: { mode: "width", value: SIG_DISPLAY_WIDTH * 3 },
+    fitTo: { mode: "width", value: SIG_DISPLAY_WIDTH },
   });
   const png = resvg.render().asPng();
   return Buffer.from(png);
