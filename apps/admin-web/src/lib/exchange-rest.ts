@@ -73,7 +73,12 @@ export async function callExchangeCmdlet(
           payload?.error?.details?.[0]?.message ||
           JSON.stringify(payload)
         : payload || res.statusText;
-    throw new Error(`Exchange cmdlet ${cmdletName} failed (${res.status}): ${detail}`);
+    const error: any = new Error(
+      `Exchange cmdlet ${cmdletName} failed (${res.status}): ${detail}`
+    );
+    error.status = res.status;
+    error.body = payload;
+    throw error;
   }
 
   return payload;

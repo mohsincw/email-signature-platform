@@ -57,11 +57,17 @@ export async function getServerSideRule(): Promise<any | null> {
     // Result shape: { value: [ { ... } ] } OR { ... } depending on cmdlet
     return result?.value?.[0] ?? result ?? null;
   } catch (err: any) {
-    // "couldn't be found" → rule doesn't exist (normal, not an error)
+    // Rule doesn't exist (normal first-run state). The Exchange REST
+    // cmdlet API returns 404 in this case, sometimes with no helpful
+    // message. Treat any 404, or messages mentioning "not found"/
+    // "doesn't exist", as "rule absent" rather than an error.
     if (
+      err?.status === 404 ||
+      err?.message?.includes("404") ||
       err?.message?.includes("couldn't be found") ||
       err?.message?.includes("Cannot find") ||
-      err?.message?.includes("does not exist")
+      err?.message?.includes("does not exist") ||
+      err?.message?.includes("not found")
     ) {
       return null;
     }
