@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────
+# Chaiiwala mail-signature relay — docker-compose
+#
+# Run this on the DigitalOcean droplet:
+#
+#     cd ~/email-signature-platform/apps/mail-processor
+#     docker compose up -d
+#
+# Logs:   docker compose logs -f mail-processor
+# Stop:   docker compose down
+# Update: git pull && docker compose up -d --build
+#
+# Includes a certbot sidecar that runs once at startup to grab the
+# Let's Encrypt certificate, then sleeps. The relay picks up the cert
+# from a shared named volume.
+# ─────────────────────────────────────────────────────────────────────
+services:
+  mail-processor:
+    build:
+      context: ../..
+      dockerfile: apps/mail-processor/Dockerfile
+    container_name: esp-mail-processor
+    restart: unless-stopped
+    ports:
+      - "25:25"
+      - "587:587"
+      - "127.0.0.1:8080:8080" # health only on localhost, not public
+    env_file:
+      - ./.env
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - certbot
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # One-shot container that obtains (or renews) the Let's Encrypt cert
+  # via the HTTP-01 challenge. Binds to port 80 briefly while it runs,
+  # then sleeps. Re-run periodically via a cron on the host (see README).
+  certbot:
+    image: certbot/certbot:latest
+    container_name: esp-certbot
+    restart: "no"
+    ports:
+      - "80:80"
+    env_file:
+      - ./.env
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        if [ ! -f /etc/letsencrypt/live/$${HOSTNAME}/fullchain.pem ]; then
+          echo "No existing cert — requesting one for $${HOSTNAME}"
+          certbot certonly \
+            --standalone \
+            --non-interactive \
+            --agree-tos \
+            --email $${CERTBOT_EMAIL} \
+            -d $${HOSTNAME}
+        else
+          echo "Cert for $${HOSTNAME} already exists — attempting renewal"
+          certbot renew --standalone --non-interactive || echo "Renewal not due"
+        fi
+
+volumes:
+  letsencrypt:
+  certbot-www:

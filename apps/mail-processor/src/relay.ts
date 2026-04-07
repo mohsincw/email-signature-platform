@@ -1,26 +1,56 @@
-import { createTransport } from "nodemailer";
+import nodemailer from "nodemailer";
+import { config } from "./config";
 import { logger } from "./logger";
 
-// TODO: Configure Microsoft 365 outbound connector to accept relay from this service
-// See docs/m365-routing.md for connector setup
-const transport = createTransport({
-  host: process.env.SMTP_RELAY_HOST ?? "localhost",
-  port: parseInt(process.env.SMTP_RELAY_PORT ?? "25", 10),
-  secure: false,
-  tls: { rejectUnauthorized: false }, // TODO: Enable proper TLS verification in production
+/**
+ * Relay a pre-built MIME message back to Exchange Online via the smart
+ * host. Our droplet's IP is whitelisted on the inbound connector so no
+ * authentication is required — Exchange trusts the connection by IP
+ * and treats the message as internal.
+ *
+ * Exchange will then apply DKIM and deliver normally. The transport
+ * rule exception on the X-ESP-Processed header prevents Exchange from
+ * routing this message back to us in a loop.
+ */
+const transport = nodemailer.createTransport({
+  host: config.smartHostHost,
+  port: config.smartHostPort,
+  secure: false, // Microsoft upgrades to STARTTLS automatically
+  requireTLS: true,
+  tls: {
+    servername: config.smartHostHost,
+  },
+  // Tell nodemailer our own hostname — Microsoft checks this matches
+  // our PTR / forward DNS to avoid appearing as open relay spam.
+  name: config.hostname,
 });
+
+export interface RelayEnvelope {
+  from: string;
+  to: string[];
+}
 
 export async function relayMessage(
   rawMessage: Buffer,
-  envelope: { mailFrom?: { address: string } | false; rcptTo: { address: string }[] }
+  envelope: RelayEnvelope
 ): Promise<void> {
-  const from = envelope.mailFrom ? envelope.mailFrom.address : undefined;
-  const to = envelope.rcptTo.map((r) => r.address);
-
-  logger.info({ from, to }, "Relaying message");
+  logger.info(
+    { from: envelope.from, to: envelope.to, bytes: rawMessage.length },
+    "Relaying processed message to smart host"
+  );
 
   await transport.sendMail({
-    envelope: { from, to },
+    envelope,
     raw: rawMessage,
   });
+}
+
+export async function verifySmartHost(): Promise<boolean> {
+  try {
+    await transport.verify();
+    return true;
+  } catch (err) {
+    logger.warn({ err }, "Smart host verification failed");
+    return false;
+  }
 }

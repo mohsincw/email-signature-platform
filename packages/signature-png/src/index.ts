@@ -1,6 +1,5 @@
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
-import path from "path";
 import { promises as fs } from "fs";
 
 // Display size at which the signature appears in the recipient's email.
@@ -14,10 +13,10 @@ const CANVAS_H = SIG_DISPLAY_HEIGHT * RENDER_SCALE;
 let cachedFont: ArrayBuffer | null = null;
 
 /**
- * Load the Myriad Pro font file from a path on disk. Callers from
- * different environments (Next.js on Vercel, plain Node in Docker)
- * pass their own path since __dirname resolution differs between
- * bundled and unbundled code.
+ * Load the Myriad Pro font from a path on disk. Callers from different
+ * environments (Next.js on Vercel, plain Node in Docker) pass their own
+ * path since __dirname resolution differs between bundled and unbundled
+ * code. Result is cached for the lifetime of the process.
  */
 export async function loadFontFromPath(
   fontPath: string
@@ -32,15 +31,22 @@ export async function loadFontFromPath(
 }
 
 /**
+ * Supply pre-loaded font data directly. Used by the admin-web serverless
+ * function when the font is bundled into the output.
+ */
+export function setFontData(data: ArrayBuffer): void {
+  cachedFont = data;
+}
+
+/**
  * Pre-fetch a remote image and inline it as a base64 data URL. Satori
- * can technically fetch image src URLs itself, but it's flaky in
- * serverless (no consistent fetch agent) and silently drops the image
- * on failure. Pre-fetching server-side is bulletproof.
+ * can technically fetch image src URLs itself but it's flaky — pre-
+ * fetching server-side is bulletproof.
  */
 async function fetchAsDataUrl(url: string): Promise<string | null> {
   if (!url) return null;
   try {
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch(url);
     if (!res.ok) {
       console.warn(`[signature-png] image fetch failed ${res.status}: ${url}`);
       return null;
@@ -78,13 +84,21 @@ export interface PngInput {
 }
 
 /**
- * Render the signature top section (logo + contact details) as a PNG.
- * Disclaimer text is rendered separately as live HTML in the email body
- * so the image stays small and the legal text is indexable / accessible.
+ * Render the signature (logo + contact details) as a PNG buffer. The
+ * disclaimer is NOT rendered into the image — it's expected to be
+ * added as live HTML text below the image by the caller.
+ *
+ * Before calling this, the font must be loaded via either
+ * loadFontFromPath() or setFontData(), otherwise you get an error.
  */
 export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
-  const [fontData, logoDataUrl, badgeDataUrl] = await Promise.all([
-    loadMyriadProFont(),
+  if (!cachedFont) {
+    throw new Error(
+      "[signature-png] font not loaded — call loadFontFromPath() or setFontData() before renderSignaturePng()"
+    );
+  }
+
+  const [logoDataUrl, badgeDataUrl] = await Promise.all([
     fetchAsDataUrl(input.logoUrl),
     fetchAsDataUrl(input.badgeUrl),
   ]);
@@ -279,13 +293,13 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     fonts: [
       {
         name: FONT,
-        data: fontData,
+        data: cachedFont,
         weight: 900,
         style: "normal",
       },
       {
         name: FONT,
-        data: fontData,
+        data: cachedFont,
         weight: 400,
         style: "normal",
       },

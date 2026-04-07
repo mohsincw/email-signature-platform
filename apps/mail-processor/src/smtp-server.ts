@@ -1,38 +1,123 @@
-import { SMTPServer } from "smtp-server";
-import { simpleParser } from "mailparser";
-import { processMessage } from "./processor";
+import { SMTPServer, type SMTPServerAuthentication } from "smtp-server";
+import { promises as fs } from "fs";
+import {
+  rewriteMessageWithSignature,
+  isAlreadyProcessed,
+  extractSenderEmail,
+} from "./mime-rewriter";
+import { lookupSender } from "./sender-lookup";
 import { relayMessage } from "./relay";
 import { logger } from "./logger";
+import { config } from "./config";
 
-export function createSmtpServer(): SMTPServer {
+interface TlsOptions {
+  key: Buffer;
+  cert: Buffer;
+}
+
+async function loadTlsOptions(): Promise<TlsOptions | null> {
+  try {
+    const [key, cert] = await Promise.all([
+      fs.readFile(config.tlsKeyPath),
+      fs.readFile(config.tlsCertPath),
+    ]);
+    return { key, cert };
+  } catch (err) {
+    logger.warn(
+      { err, certPath: config.tlsCertPath, keyPath: config.tlsKeyPath },
+      "TLS cert/key not found — STARTTLS will be disabled"
+    );
+    return null;
+  }
+}
+
+export async function createSmtpServer(): Promise<SMTPServer> {
+  const tls = await loadTlsOptions();
+
   return new SMTPServer({
+    name: config.hostname,
+    banner: `${config.hostname} ESMTP Chaiiwala Email Signature Relay`,
     authOptional: true,
-    disabledCommands: ["STARTTLS"], // TODO: Enable TLS for production
-    onData(stream, session, callback) {
+    // TLS is opportunistic — Exchange prefers STARTTLS but we don't
+    // reject plain connections in case the cert is missing at boot.
+    secure: false,
+    ...(tls ? { key: tls.key, cert: tls.cert } : { disabledCommands: ["STARTTLS"] }),
+    size: 25 * 1024 * 1024, // 25MB max message size
+    // Accept mail from anyone on the network level — IP filtering is
+    // done by the firewall / Exchange connector, not here. This lets
+    // us also accept local health checks without setup.
+    onAuth(auth: SMTPServerAuthentication, _session, callback) {
+      // Accept any auth — Exchange inbound connector uses IP trust,
+      // not SMTP AUTH, so this path is rarely hit.
+      callback(null, { user: auth.username });
+    },
+    async onData(stream, session, callback) {
       const chunks: Buffer[] = [];
-
       stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("error", (err) => {
+        logger.error({ err }, "Stream error while reading message body");
+        callback(new Error("Stream error"));
+      });
       stream.on("end", async () => {
-        try {
-          const raw = Buffer.concat(chunks);
-          const parsed = await simpleParser(raw);
-          const senderEmail =
-            parsed.from?.value?.[0]?.address ?? session.envelope.mailFrom?.address;
+        const raw = Buffer.concat(chunks);
 
-          if (!senderEmail) {
-            logger.warn("No sender email found, relaying unchanged");
-            await relayMessage(raw, session.envelope);
+        // Build the envelope for relay from the SMTP session's
+        // envelope fields (not the parsed From/To — the envelope is
+        // what the routing layer actually uses).
+        const envFrom = session.envelope.mailFrom
+          ? session.envelope.mailFrom.address
+          : "";
+        const envTo = session.envelope.rcptTo.map((r) => r.address);
+
+        try {
+          // Loop prevention
+          if (await isAlreadyProcessed(raw)) {
+            logger.info(
+              { from: envFrom, to: envTo },
+              "Message already has X-ESP-Processed header — relaying unchanged"
+            );
+            await relayMessage(raw, { from: envFrom, to: envTo });
             return callback();
           }
 
-          logger.info({ sender: senderEmail }, "Processing message");
+          // Find the logical sender — prefer the parsed From header
+          // over the envelope because the envelope MAIL FROM is
+          // sometimes the server itself or a bounce address.
+          const senderEmail = (await extractSenderEmail(raw)) ?? envFrom;
+          if (!senderEmail) {
+            logger.warn("No sender email found — relaying unchanged");
+            await relayMessage(raw, { from: envFrom, to: envTo });
+            return callback();
+          }
 
-          const result = await processMessage(raw.toString(), parsed, senderEmail);
-          await relayMessage(Buffer.from(result), session.envelope);
+          const senderData = await lookupSender(senderEmail);
+          if (!senderData) {
+            logger.info(
+              { senderEmail },
+              "No matching sender in DB — relaying unchanged"
+            );
+            await relayMessage(raw, { from: envFrom, to: envTo });
+            return callback();
+          }
 
+          const { raw: rewritten } = await rewriteMessageWithSignature(
+            raw,
+            senderData
+          );
+          logger.info(
+            {
+              senderEmail,
+              originalBytes: raw.length,
+              rewrittenBytes: rewritten.length,
+              recipients: envTo.length,
+            },
+            "Signature injected"
+          );
+
+          await relayMessage(rewritten, { from: envFrom, to: envTo });
           callback();
         } catch (err) {
-          logger.error({ err }, "Error processing message");
+          logger.error({ err, from: envFrom, to: envTo }, "Processing failed");
           callback(new Error("Processing failed"));
         }
       });
