@@ -1,0 +1,121 @@
+import { callExchangeCmdlet } from "./exchange-rest";
+import { getPublicBaseUrl } from "./signature-html";
+
+/**
+ * Server-side signature mode using a single Exchange Online transport
+ * rule (mail flow rule). Microsoft natively supports per-user disclaimers
+ * via %% tokens that pull from the sender's Entra ID profile, so we use
+ * that instead of running our own SMTP processor.
+ *
+ * The rule:
+ *   - Applies to ALL outbound messages (SentToScope = NotInOrganization)
+ *   - Adds an HTML disclaimer at the bottom containing a hot-linked PNG
+ *     of the sender's signature, with %%UserPrincipalName%% in the URL
+ *     so each sender gets their own image
+ *   - Has an exception that looks for our unique marker comment so the
+ *     signature isn't appended twice on replies / forwards
+ */
+
+const RULE_NAME = "ChaiiwalaEmailSignaturePlatform";
+const DEDUP_MARKER = "ESP-SIG-V1";
+
+function buildDisclaimerHtml(disclaimer: string): string {
+  const base = getPublicBaseUrl();
+  if (!base) {
+    throw new Error(
+      "PUBLIC_APP_URL / VERCEL_PROJECT_PRODUCTION_URL not set — cannot build a hot-link URL for the signature image"
+    );
+  }
+  const imgUrl = `${base}/api/signature.png?email=%%UserPrincipalName%%`;
+
+  // The HTML stays under Microsoft's 5000-char disclaimer limit, uses
+  // only inline styles (since some clients strip <style>), and embeds
+  // the dedup marker as an HTML comment that won't render but can be
+  // matched by the rule exception.
+  const safeDisclaimer = (disclaimer || "").trim();
+
+  const parts = [
+    `<!--${DEDUP_MARKER}-->`,
+    `<br/><br/>`,
+    `<img src="${imgUrl}" width="540" alt="Chaiiwala signature" style="display:block;width:540px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />`,
+  ];
+
+  if (safeDisclaimer) {
+    parts.push(
+      `<div style="margin-top:12px;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-style:italic;line-height:1.5;color:#525252;">${safeDisclaimer}</div>`
+    );
+  }
+
+  return parts.join("");
+}
+
+export async function getServerSideRule(): Promise<any | null> {
+  try {
+    const result = await callExchangeCmdlet("Get-TransportRule", {
+      Identity: RULE_NAME,
+    });
+    // Result shape: { value: [ { ... } ] } OR { ... } depending on cmdlet
+    return result?.value?.[0] ?? result ?? null;
+  } catch (err: any) {
+    // "couldn't be found" → rule doesn't exist (normal, not an error)
+    if (
+      err?.message?.includes("couldn't be found") ||
+      err?.message?.includes("Cannot find") ||
+      err?.message?.includes("does not exist")
+    ) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function enableServerSideRule(disclaimer: string): Promise<void> {
+  const html = buildDisclaimerHtml(disclaimer);
+
+  if (html.length > 5000) {
+    throw new Error(
+      `Generated disclaimer HTML is ${html.length} chars, exceeds Microsoft's 5000-char transport rule limit. Shorten the disclaimer text.`
+    );
+  }
+
+  const existing = await getServerSideRule();
+  const params = {
+    Name: RULE_NAME,
+    Enabled: true,
+    SentToScope: "NotInOrganization",
+    ApplyHtmlDisclaimerLocation: "Append",
+    ApplyHtmlDisclaimerText: html,
+    ApplyHtmlDisclaimerFallbackAction: "Wrap",
+    // Don't add the signature twice on replies / forwards
+    ExceptIfSubjectOrBodyContainsWords: DEDUP_MARKER,
+    Mode: "Enforce",
+  };
+
+  if (existing) {
+    // Set-TransportRule uses Identity for lookup
+    await callExchangeCmdlet("Set-TransportRule", {
+      Identity: RULE_NAME,
+      Enabled: true,
+      ApplyHtmlDisclaimerLocation: "Append",
+      ApplyHtmlDisclaimerText: html,
+      ApplyHtmlDisclaimerFallbackAction: "Wrap",
+      ExceptIfSubjectOrBodyContainsWords: DEDUP_MARKER,
+      SentToScope: "NotInOrganization",
+      Mode: "Enforce",
+    });
+  } else {
+    await callExchangeCmdlet("New-TransportRule", params);
+  }
+}
+
+export async function disableServerSideRule(): Promise<void> {
+  const existing = await getServerSideRule();
+  if (!existing) return;
+  await callExchangeCmdlet("Remove-TransportRule", {
+    Identity: RULE_NAME,
+    Confirm: false,
+  });
+}
+
+export const SERVER_SIDE_RULE_NAME = RULE_NAME;
+export const SERVER_SIDE_DEDUP_MARKER = DEDUP_MARKER;

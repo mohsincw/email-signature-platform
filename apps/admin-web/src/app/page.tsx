@@ -30,6 +30,9 @@ export default function DashboardPage() {
   const [deployMsg, setDeployMsg] = useState<string | null>(null);
   const [enablingRoaming, setEnablingRoaming] = useState(false);
   const [roamingMsg, setRoamingMsg] = useState<string | null>(null);
+  const [serverSideEnabled, setServerSideEnabled] = useState<boolean | null>(null);
+  const [togglingServerSide, setTogglingServerSide] = useState(false);
+  const [serverSideMsg, setServerSideMsg] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -41,6 +44,13 @@ export default function DashboardPage() {
       setSenders(ss ?? []);
       setOutlookConfigured(o?.configured ?? false);
       setLoading(false);
+      // Status check uses Exchange REST so only do it if Outlook is configured
+      if (o?.configured) {
+        api.admin
+          .serverSideStatus()
+          .then((s) => setServerSideEnabled(s.enabled))
+          .catch(() => setServerSideEnabled(null));
+      }
     });
   }, []);
 
@@ -77,6 +87,38 @@ export default function DashboardPage() {
   const enabledCount = senders.filter((s) => s.enabled).length;
   const lastSuccess = senders.filter((s) => s.lastDeployedStatus === "success").length;
   const lastFail = senders.filter((s) => s.lastDeployedStatus === "failed").length;
+
+  const toggleServerSide = async () => {
+    const turningOn = !serverSideEnabled;
+    if (turningOn) {
+      if (
+        !confirm(
+          "Enable Server-Side Mode?\n\nThis creates an Exchange Online transport rule that automatically appends a Chaiiwala signature to every outbound email sent to external recipients — across all devices and clients (Outlook, mobile, web, third-party apps). Continue?"
+        )
+      )
+        return;
+    } else {
+      if (
+        !confirm(
+          "Disable Server-Side Mode?\n\nThis removes the transport rule. Outbound emails will no longer get an auto-appended signature."
+        )
+      )
+        return;
+    }
+    setTogglingServerSide(true);
+    setServerSideMsg(null);
+    try {
+      const result = turningOn
+        ? await api.admin.enableServerSide()
+        : await api.admin.disableServerSide();
+      setServerSideMsg(result.message);
+      setServerSideEnabled(turningOn);
+    } catch (err: any) {
+      setServerSideMsg(`Failed: ${err.message}`);
+    } finally {
+      setTogglingServerSide(false);
+    }
+  };
 
   const enableRoaming = async () => {
     if (
@@ -283,6 +325,97 @@ export default function DashboardPage() {
               }}
             >
               {roamingMsg}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Server-side mode */}
+      {outlookConfigured && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              marginBottom: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            <h3 style={{ margin: 0 }}>Server-Side Mode</h3>
+            {serverSideEnabled === true && (
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#16A34A",
+                  background: "#F0FDF4",
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #BBF7D0",
+                }}
+              >
+                ✓ Active
+              </span>
+            )}
+            {serverSideEnabled === false && (
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#737373",
+                  background: "#F5F5F5",
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #E5E5E5",
+                }}
+              >
+                Inactive
+              </span>
+            )}
+          </div>
+          <p style={{ fontSize: 13, color: "#737373", marginBottom: 16 }}>
+            Append a signature to <strong>every outbound email</strong> at the
+            Exchange Online level — works on every client (Outlook desktop /
+            web / mobile / iOS Mail / third-party apps) without any per-user
+            setup. Uses a single transport rule that hot-links each sender's
+            personalised PNG. Recommended for organisation-wide rollout.
+          </p>
+          <button
+            className={
+              serverSideEnabled ? "btn btn-secondary" : "btn btn-primary"
+            }
+            onClick={toggleServerSide}
+            disabled={togglingServerSide || serverSideEnabled === null}
+          >
+            {togglingServerSide
+              ? serverSideEnabled
+                ? "Disabling…"
+                : "Enabling…"
+              : serverSideEnabled
+              ? "Disable Server-Side Mode"
+              : "Enable Server-Side Mode"}
+          </button>
+          {serverSideMsg && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 14px",
+                borderRadius: 8,
+                fontSize: 13,
+                background: serverSideMsg.startsWith("Failed")
+                  ? "#FEF2F2"
+                  : "#F0FDF4",
+                color: serverSideMsg.startsWith("Failed")
+                  ? "#DC2626"
+                  : "#16A34A",
+                border: `1px solid ${
+                  serverSideMsg.startsWith("Failed") ? "#FECACA" : "#BBF7D0"
+                }`,
+              }}
+            >
+              {serverSideMsg}
             </div>
           )}
         </div>

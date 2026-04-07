@@ -147,6 +147,24 @@ export const api = {
         previousValue: boolean | null;
         currentValue: boolean | null;
       }>("/admin/enable-roaming-signatures", { method: "POST" }),
+    serverSideStatus: () =>
+      apiFetch<{
+        enabled: boolean;
+        ruleName: string;
+        state: string | null;
+        mode: string | null;
+        lastModified: string | null;
+      }>("/admin/server-side/status"),
+    enableServerSide: () =>
+      apiFetch<{ success: boolean; message: string }>(
+        "/admin/server-side/enable",
+        { method: "POST" }
+      ),
+    disableServerSide: () =>
+      apiFetch<{ success: boolean; message: string }>(
+        "/admin/server-side/disable",
+        { method: "POST" }
+      ),
   },
 };
 
