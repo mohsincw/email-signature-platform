@@ -38,14 +38,15 @@ export function buildPngSignatureHtml(
   const base = getPublicBaseUrl();
   const pngUrl = `${base}/api/senders/${senderId}/preview.png`;
 
-  // Wrap the image in a fixed-width single-cell table so Outlook
-  // respects the intended 314x154 CSS size regardless of the source
-  // PNG's natural pixel dimensions (which are 2x for retina sharpness).
-  const imgCell = `<table cellpadding="0" cellspacing="0" border="0" width="${SIG_WIDTH}" style="border-collapse:collapse;width:${SIG_WIDTH}px;"><tr><td width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="padding:0;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;line-height:0;font-size:0;"><img src="${pngUrl}" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;margin:0;padding:0;" /></td></tr></table>`;
+  // Match CodeTwo's HTML structure exactly: plain inline <img> with
+  // width/height attributes + inline CSS, single <br>, then an <i>
+  // tag for the disclaimer. No tables, no divs, no display:block —
+  // those add paragraph spacing that doesn't match the reference.
+  const img = `<img src="${pngUrl}" border="0" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="font-family:Arial;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`;
 
   const disclaimerBlock = disclaimer
-    ? `<div style="margin:6px 0 0 0;padding:0;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${disclaimer}</div>`
+    ? `<br/><i style="font-family:Arial;"><span style="font-size:8.0pt;color:#333333;">${disclaimer}</span></i>`
     : "";
 
-  return `<div style="margin-top:8px;">${imgCell}${disclaimerBlock}</div>`;
+  return `${img}${disclaimerBlock}`;
 }
