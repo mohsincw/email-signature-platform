@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       website: settings?.website ?? "",
       logoUrl: settings?.logoUrl ?? "",
       badgeUrl: settings?.badgeUrl ?? "",
+      disclaimer: settings?.disclaimer ?? "",
     });
     return NextResponse.json({ html });
   } catch (err) {

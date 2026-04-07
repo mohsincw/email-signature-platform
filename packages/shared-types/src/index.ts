@@ -36,6 +36,7 @@ export interface GlobalSettingsDto {
   website: string;
   logoUrl: string;
   badgeUrl: string;
+  disclaimer: string;
 }
 
 export interface SignatureRenderInput {
@@ -48,6 +49,7 @@ export interface SignatureRenderInput {
   website: string;
   logoUrl: string;
   badgeUrl: string;
+  disclaimer?: string;
 }
 
 export interface UploadUrlResponse {

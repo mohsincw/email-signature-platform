@@ -23,6 +23,7 @@ export default function GeneratePage() {
     website: "www.chaiiwala.co.uk",
     logoUrl: "",
     badgeUrl: "",
+    disclaimer: "",
   };
 
   useEffect(() => {

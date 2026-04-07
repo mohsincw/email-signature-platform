@@ -114,4 +114,35 @@ export const api = {
         body: JSON.stringify(data),
       }),
   },
+  uploads: {
+    presign: (kind: "logo" | "badge" | "sender" | "asset", contentType: string) =>
+      apiFetch<{ uploadUrl: string; key: string; publicUrl: string }>(
+        "/upload-url",
+        {
+          method: "POST",
+          body: JSON.stringify({ kind, contentType }),
+        }
+      ),
+  },
 };
+
+/**
+ * Upload a File or Blob via a presigned URL and return its public URL.
+ * Used by paste/drop image zones to push directly to Supabase Storage.
+ */
+export async function uploadImage(
+  file: File | Blob,
+  kind: "logo" | "badge" | "sender" | "asset" = "asset"
+): Promise<string> {
+  const contentType = (file as File).type || "image/png";
+  const { uploadUrl, publicUrl } = await api.uploads.presign(kind, contentType);
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: file,
+  });
+  if (!res.ok) {
+    throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+  }
+  return publicUrl;
+}

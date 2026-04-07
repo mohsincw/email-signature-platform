@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import type { GlobalSettingsDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
+import { ImageDropZone } from "../components/ImageDropZone";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<GlobalSettingsDto | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
     api.settings.get().then(setSettings);
@@ -19,7 +21,7 @@ export default function SettingsPage() {
     try {
       const updated = await api.settings.update(settings);
       setSettings(updated);
-      alert("Settings saved");
+      setSavedAt(new Date().toLocaleTimeString());
     } catch {
       alert("Failed to save settings");
     }
@@ -32,7 +34,7 @@ export default function SettingsPage() {
     <div>
       <h2>Global Settings</h2>
       <p style={{ marginBottom: 24, color: "#737373", fontSize: 14 }}>
-        These settings are shared across all signatures in the organisation.
+        These settings are shared across every signature in the organisation.
       </p>
 
       <div className="card">
@@ -73,38 +75,60 @@ export default function SettingsPage() {
           </div>
 
           <h3 style={{ marginTop: 28, marginBottom: 16 }}>Brand Assets</h3>
+          <ImageDropZone
+            label="Logo"
+            kind="logo"
+            value={settings.logoUrl}
+            onChange={(url) => setSettings({ ...settings, logoUrl: url })}
+            helpText="The chaiiwala logo with the kettle icon. Shown on the left side of every signature."
+          />
+          <ImageDropZone
+            label="Badge (optional)"
+            kind="badge"
+            value={settings.badgeUrl}
+            onChange={(url) => setSettings({ ...settings, badgeUrl: url })}
+            helpText="Award badge shown below the logo (e.g. 5 Star Franchisee Satisfaction)."
+          />
+
+          <h3 style={{ marginTop: 28, marginBottom: 16 }}>Disclaimer</h3>
           <div className="form-group">
-            <label>Logo Image URL</label>
-            <input
-              type="url"
-              value={settings.logoUrl}
+            <label>Email disclaimer / legal text</label>
+            <textarea
+              value={settings.disclaimer}
               onChange={(e) =>
-                setSettings({ ...settings, logoUrl: e.target.value })
+                setSettings({ ...settings, disclaimer: e.target.value })
               }
-              placeholder="https://your-cdn.com/chaiiwala-logo.png"
+              rows={6}
+              placeholder="This email and any attachments are confidential and intended solely for the addressee..."
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                fontSize: 13,
+                fontFamily: "'Inter', sans-serif",
+                borderRadius: 8,
+                border: "1px solid #D4D4D4",
+                resize: "vertical",
+                lineHeight: 1.5,
+                boxSizing: "border-box",
+              }}
             />
             <p style={{ fontSize: 11, color: "#999", marginTop: 4 }}>
-              The chaiiwala logo with kettle icon shown on the left side of the signature.
-            </p>
-          </div>
-          <div className="form-group">
-            <label>Badge Image URL (optional)</label>
-            <input
-              type="url"
-              value={settings.badgeUrl}
-              onChange={(e) =>
-                setSettings({ ...settings, badgeUrl: e.target.value })
-              }
-              placeholder="https://your-cdn.com/5-star-badge.png"
-            />
-            <p style={{ fontSize: 11, color: "#999", marginTop: 4 }}>
-              Award badge shown below the logo (e.g. 5 Star Franchisee Satisfaction).
+              Plain text or basic HTML (e.g. <code>&lt;b&gt;</code>,{" "}
+              <code>&lt;a href=&quot;...&quot;&gt;</code>). Appears in small grey
+              text below every signature.
             </p>
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? "Saving..." : "Save Settings"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? "Saving..." : "Save Settings"}
+            </button>
+            {savedAt && (
+              <span style={{ fontSize: 12, color: "#16A34A" }}>
+                Saved at {savedAt}
+              </span>
+            )}
+          </div>
         </form>
       </div>
     </div>

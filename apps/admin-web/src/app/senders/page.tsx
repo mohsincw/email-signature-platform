@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2, Cloud } from "lucide-react";
+import { Trash2, Cloud, Copy, Upload } from "lucide-react";
 import type { SenderDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
 
@@ -38,6 +38,26 @@ export default function SendersPage() {
       next.delete(id);
       return next;
     });
+  };
+
+  const duplicateSender = async (sender: SenderDto) => {
+    const newEmail = prompt(
+      `Email for the new sender (must be unique):`,
+      sender.email
+    );
+    if (!newEmail || newEmail === sender.email) return;
+    try {
+      const created = await api.senders.create({
+        email: newEmail.trim(),
+        name: sender.name,
+        title: sender.title ?? undefined,
+        phone: sender.phone ?? undefined,
+        phone2: sender.phone2 ?? undefined,
+      });
+      setSenders((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (err: any) {
+      alert(`Failed to duplicate: ${err.message}`);
+    }
   };
 
   const toggleSelect = (id: string) => {
@@ -123,6 +143,10 @@ export default function SendersPage() {
               {deleting ? "Deleting..." : `Delete (${selected.size})`}
             </button>
           )}
+          <a href="/senders/import" className="btn btn-secondary">
+            <Upload size={16} strokeWidth={2} />
+            Bulk Import
+          </a>
           <a href="/senders/new" className="btn btn-primary">
             Add Sender
           </a>
@@ -197,6 +221,13 @@ export default function SendersPage() {
                   >
                     Edit
                   </a>
+                  <button
+                    onClick={() => duplicateSender(sender)}
+                    className="btn btn-secondary"
+                    title="Duplicate this sender"
+                  >
+                    <Copy size={14} strokeWidth={2} />
+                  </button>
                   <button
                     onClick={() => toggleEnabled(sender)}
                     className="btn btn-secondary"

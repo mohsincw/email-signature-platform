@@ -29,6 +29,7 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
     website,
     logoUrl,
     badgeUrl,
+    disclaimer,
   } = input;
 
   const font = "'Helvetica Neue', Helvetica, Arial, sans-serif";
@@ -82,6 +83,10 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
     }
   }
 
+  const disclaimerBlock = disclaimer
+    ? `\n<div style="margin-top:22px;max-width:640px;font-family:${font};font-size:11px;font-style:italic;line-height:1.5;color:#525252;">${disclaimer}</div>`
+    : '';
+
   return [
     '<div style="margin-top:20px;">',
     '<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">',
@@ -96,6 +101,7 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
     '</td>',
     '</tr>',
     '</table>',
+    disclaimerBlock,
     '</div>',
   ].join('\n');
 }

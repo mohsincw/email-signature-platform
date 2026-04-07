@@ -33,6 +33,7 @@ export async function deploySignature(
     website: settings?.website ?? "",
     logoUrl: settings?.logoUrl ?? "",
     badgeUrl: settings?.badgeUrl ?? "",
+    disclaimer: settings?.disclaimer ?? "",
   });
 
   const signaturePlain = renderSignaturePlain(

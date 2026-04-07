@@ -36,6 +36,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       website: settings?.website ?? "",
       logoUrl: settings?.logoUrl ?? "",
       badgeUrl: settings?.badgeUrl ?? "",
+      disclaimer: settings?.disclaimer ?? "",
     });
 
     const emailBody = `
