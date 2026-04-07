@@ -8,6 +8,32 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* Chaiiwala brand fonts — used by the live signature preview so what
+ * the admin sees matches what an Adobe Creative Cloud / Mac user will
+ * see in their email. Email clients themselves still use the fallback
+ * stack defined inline in the renderer, since most strip @font-face. */
+@font-face {
+  font-family: 'Myriad Pro';
+  src: url('/fonts/myriad-pro-black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Centaur MT Std';
+  src: url('/fonts/CentaurMTStd-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Colatin';
+  src: url('/fonts/Colatin.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --black: #000000;
   --white: #FFFFFF;
