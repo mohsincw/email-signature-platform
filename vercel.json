@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @esp/database exec prisma generate && pnpm --filter @esp/database exec prisma migrate deploy && pnpm --filter @esp/admin-web build",
+  "buildCommand": "pnpm --filter @esp/database exec prisma generate && pnpm --filter @esp/admin-web build",
   "installCommand": "pnpm install --frozen-lockfile=false",
   "outputDirectory": "apps/admin-web/.next",
   "framework": "nextjs"
