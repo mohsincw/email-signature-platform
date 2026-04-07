@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Sender {
+  id          String          @id @default(uuid())
+  email       String          @unique
+  name        String
+  title       String?
+  phone       String?
+  phone2      String?         @map("phone_2")
+  enabled     Boolean         @default(true)
+  imageKey    String?         @map("image_key")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  deployments DeploymentLog[]
+
+  @@map("senders")
+}
+
+model DeploymentLog {
+  id         String   @id @default(uuid())
+  senderId   String   @map("sender_id")
+  sender     Sender   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  target     String
+  status     String
+  error      String?
+  deployedAt DateTime @default(now()) @map("deployed_at")
+  deployedBy String?  @map("deployed_by")
+
+  @@map("deployment_logs")
+}
+
+model AdminUser {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("admin")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("admin_users")
+}
+
+model GlobalSettings {
+  id              String   @id @default("singleton")
+  addressLine1    String   @default("") @map("address_line_1")
+  addressLine2    String   @default("") @map("address_line_2")
+  website         String   @default("") @map("website")
+  logoUrl         String   @default("") @map("logo_url")
+  badgeUrl        String   @default("") @map("badge_url")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("global_settings")
+}
