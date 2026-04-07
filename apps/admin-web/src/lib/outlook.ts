@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { getGraphClient, parseGraphError } from "./graph";
-import { renderSignatureHtml, renderSignaturePlain } from "@esp/signature-renderer";
+import { renderSignaturePlain } from "@esp/signature-renderer";
+import { buildPngSignatureHtml } from "./signature-html";
 import type { DeploymentResultDto } from "@esp/shared-types";
 import { ApiError } from "./errors";
 
@@ -23,18 +24,10 @@ export async function deploySignature(
     where: { id: "singleton" },
   });
 
-  const signatureHtml = renderSignatureHtml({
-    senderName: sender.name,
-    senderTitle: sender.title,
-    senderPhone: sender.phone,
-    senderPhone2: sender.phone2,
-    addressLine1: settings?.addressLine1 ?? "",
-    addressLine2: settings?.addressLine2 ?? "",
-    website: settings?.website ?? "",
-    logoUrl: settings?.logoUrl ?? "",
-    badgeUrl: settings?.badgeUrl ?? "",
-    disclaimer: settings?.disclaimer ?? "",
-  });
+  const signatureHtml = buildPngSignatureHtml(
+    sender.id,
+    settings?.disclaimer ?? ""
+  );
 
   const signaturePlain = renderSignaturePlain(
     sender.name,

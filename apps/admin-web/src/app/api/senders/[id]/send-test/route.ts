@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
-import { renderSignatureHtml } from "@esp/signature-renderer";
+import { buildPngSignatureHtml } from "@/lib/signature-html";
 import { createTransport, defaultFromAddress } from "@/lib/mailer";
 import { ApiError, errorResponse } from "@/lib/errors";
 
@@ -26,18 +26,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       where: { id: "singleton" },
     });
 
-    const signatureHtml = renderSignatureHtml({
-      senderName: sender.name,
-      senderTitle: sender.title,
-      senderPhone: sender.phone,
-      senderPhone2: sender.phone2,
-      addressLine1: settings?.addressLine1 ?? "",
-      addressLine2: settings?.addressLine2 ?? "",
-      website: settings?.website ?? "",
-      logoUrl: settings?.logoUrl ?? "",
-      badgeUrl: settings?.badgeUrl ?? "",
-      disclaimer: settings?.disclaimer ?? "",
-    });
+    const signatureHtml = buildPngSignatureHtml(
+      sender.id,
+      settings?.disclaimer ?? ""
+    );
 
     const emailBody = `
       <html>
