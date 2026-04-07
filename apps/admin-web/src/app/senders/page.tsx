@@ -49,6 +49,15 @@ export default function SendersPage() {
   );
 
   const toggleEnabled = async (sender: SenderDto) => {
+    if (
+      sender.enabled &&
+      outlookConfigured &&
+      !confirm(
+        `Disable ${sender.name}?\n\nThis will also turn off their signature in Outlook so it stops appearing on outgoing email. They can be re-enabled and re-deployed later.`
+      )
+    ) {
+      return;
+    }
     const updated = await api.senders.update(sender.id, {
       enabled: !sender.enabled,
     });
@@ -56,7 +65,11 @@ export default function SendersPage() {
   };
 
   const deleteSender = async (id: string) => {
-    if (!confirm("Delete this sender?")) return;
+    const sender = senders.find((s) => s.id === id);
+    const msg = outlookConfigured
+      ? `Delete ${sender?.name ?? "this sender"}?\n\nThis will also clear their signature from Outlook. The change is permanent.`
+      : "Delete this sender?";
+    if (!confirm(msg)) return;
     await api.senders.delete(id);
     setSenders((prev) => prev.filter((s) => s.id !== id));
     setSelected((prev) => {
@@ -107,8 +120,10 @@ export default function SendersPage() {
 
   const deleteSelected = async () => {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} sender${selected.size > 1 ? "s" : ""}?`))
-      return;
+    const msg = outlookConfigured
+      ? `Delete ${selected.size} sender${selected.size > 1 ? "s" : ""}?\n\nThis will also clear their signatures from Outlook. The change is permanent.`
+      : `Delete ${selected.size} sender${selected.size > 1 ? "s" : ""}?`;
+    if (!confirm(msg)) return;
     setDeleting(true);
     try {
       await Promise.all(

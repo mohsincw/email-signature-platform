@@ -122,3 +122,102 @@ export async function deploySignature(
     };
   }
 }
+
+/**
+ * Remove (or disable) a signature from a user's M365 mailbox.
+ *
+ * mode = "disable" → sets signatureSettings.isEnabled = false, leaves
+ *   the html/text in place so re-enabling restores instantly.
+ * mode = "clear"   → also blanks out the html/text body. Used when a
+ *   sender is being deleted from the platform.
+ *
+ * If the user has been removed from M365 (Graph 404) we still treat
+ * it as success — there's nothing to clear, the side effect is
+ * already what the caller wanted.
+ */
+export async function undeploySignature(
+  senderId: string,
+  mode: "disable" | "clear",
+  adminUserId?: string
+): Promise<DeploymentResultDto> {
+  const graph = getGraphClient();
+  const sender = await prisma.sender.findUnique({ where: { id: senderId } });
+  if (!sender) throw new ApiError(400, `Sender ${senderId} not found`);
+
+  // No Graph configured → silently succeed so the local
+  // disable/delete still proceeds.
+  if (!graph) {
+    return {
+      senderId: sender.id,
+      senderEmail: sender.email,
+      senderName: sender.name,
+      success: true,
+      deployedAt: new Date().toISOString(),
+    };
+  }
+
+  const patch: any = {
+    signatureSettings: {
+      isEnabled: false,
+      useForNewMessages: false,
+      useForRepliesOrForwards: false,
+    },
+  };
+  if (mode === "clear") {
+    patch.signatureSettings.defaultSignature = { html: "", text: "" };
+  }
+
+  try {
+    await graph
+      .api(`/users/${sender.email}/mailboxSettings`)
+      .version("beta")
+      .header("Prefer", "outlook.allow-unsafe-html")
+      .patch(patch);
+
+    await prisma.deploymentLog.create({
+      data: {
+        senderId: sender.id,
+        target: "outlook",
+        status: mode === "clear" ? "cleared" : "disabled",
+        deployedBy: adminUserId,
+      },
+    });
+
+    return {
+      senderId: sender.id,
+      senderEmail: sender.email,
+      senderName: sender.name,
+      success: true,
+      deployedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    // User no longer exists in M365 → there's nothing to clear, count as success
+    if (err?.statusCode === 404) {
+      return {
+        senderId: sender.id,
+        senderEmail: sender.email,
+        senderName: sender.name,
+        success: true,
+        deployedAt: new Date().toISOString(),
+      };
+    }
+    const errorMsg = parseGraphError(err);
+    await prisma.deploymentLog.create({
+      data: {
+        senderId: sender.id,
+        target: "outlook",
+        status: "failed",
+        error: `undeploy: ${errorMsg}`,
+        deployedBy: adminUserId,
+      },
+    });
+    return {
+      senderId: sender.id,
+      senderEmail: sender.email,
+      senderName: sender.name,
+      success: false,
+      error: errorMsg,
+      deployedAt: new Date().toISOString(),
+    };
+  }
+}

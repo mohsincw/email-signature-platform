@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { senderToDto } from "@/lib/senders";
+import { undeploySignature } from "@/lib/outlook";
 import { ApiError, errorResponse } from "@/lib/errors";
+
+export const maxDuration = 60;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,11 +31,25 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
   try {
-    requireAuth(req);
+    const auth = requireAuth(req);
     const { id } = await params;
     const body = await req.json();
     const existing = await prisma.sender.findUnique({ where: { id } });
     if (!existing) throw new ApiError(404, "Sender not found");
+
+    // If we're disabling a previously-enabled sender, also turn off
+    // their signature in M365 so it stops appearing on outgoing email.
+    const isDisablingNow =
+      body.enabled === false && existing.enabled === true;
+    if (isDisablingNow) {
+      try {
+        await undeploySignature(id, "disable", auth.sub);
+      } catch (err) {
+        console.warn("[senders.PUT] undeploy on disable failed:", err);
+        // continue — local disable still proceeds
+      }
+    }
+
     const sender = await prisma.sender.update({
       where: { id },
       data: {
@@ -56,10 +73,20 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   try {
-    requireAuth(req);
+    const auth = requireAuth(req);
     const { id } = await params;
     const existing = await prisma.sender.findUnique({ where: { id } });
     if (!existing) throw new ApiError(404, "Sender not found");
+
+    // Clear the signature from their M365 mailbox before removing the
+    // local row. Failures here don't block the local delete — log a
+    // warning so the operator can manually clean up if needed.
+    try {
+      await undeploySignature(id, "clear", auth.sub);
+    } catch (err) {
+      console.warn("[senders.DELETE] undeploy on delete failed:", err);
+    }
+
     await prisma.sender.delete({ where: { id } });
     return new NextResponse(null, { status: 204 });
   } catch (err) {
