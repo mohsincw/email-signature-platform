@@ -155,10 +155,10 @@ export const api = {
         mode: string | null;
         lastModified: string | null;
       }>("/admin/server-side/status"),
-    enableServerSide: () =>
-      apiFetch<{ success: boolean; message: string }>(
+    enableServerSide: (scope: "all" | "external" = "all") =>
+      apiFetch<{ success: boolean; message: string; scope: "all" | "external" }>(
         "/admin/server-side/enable",
-        { method: "POST" }
+        { method: "POST", body: JSON.stringify({ scope }) }
       ),
     disableServerSide: () =>
       apiFetch<{ success: boolean; message: string }>(

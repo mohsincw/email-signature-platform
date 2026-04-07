@@ -75,7 +75,12 @@ export async function getServerSideRule(): Promise<any | null> {
   }
 }
 
-export async function enableServerSideRule(disclaimer: string): Promise<void> {
+export type SignatureScope = "external" | "all";
+
+export async function enableServerSideRule(
+  disclaimer: string,
+  scope: SignatureScope = "all"
+): Promise<void> {
   const html = buildDisclaimerHtml(disclaimer);
 
   if (html.length > 5000) {
@@ -85,32 +90,43 @@ export async function enableServerSideRule(disclaimer: string): Promise<void> {
   }
 
   const existing = await getServerSideRule();
-  const params = {
-    Name: RULE_NAME,
+
+  // Scope translates to either restricting to external recipients via
+  // SentToScope, or applying to every message by leaving the scope
+  // unrestricted (matched on the dedup-marker exception only).
+  const scopeParams =
+    scope === "external"
+      ? { SentToScope: "NotInOrganization" }
+      : {};
+
+  const sharedParams = {
     Enabled: true,
-    SentToScope: "NotInOrganization",
     ApplyHtmlDisclaimerLocation: "Append",
     ApplyHtmlDisclaimerText: html,
     ApplyHtmlDisclaimerFallbackAction: "Wrap",
     // Don't add the signature twice on replies / forwards
     ExceptIfSubjectOrBodyContainsWords: DEDUP_MARKER,
     Mode: "Enforce",
+    ...scopeParams,
   };
 
   if (existing) {
-    // Set-TransportRule uses Identity for lookup
-    await callExchangeCmdlet("Set-TransportRule", {
+    // When updating, we need to explicitly clear SentToScope if we're
+    // moving from external-only to all, otherwise the old restriction
+    // sticks. Set-TransportRule treats $null as "remove this filter".
+    const updateParams: Record<string, unknown> = {
       Identity: RULE_NAME,
-      Enabled: true,
-      ApplyHtmlDisclaimerLocation: "Append",
-      ApplyHtmlDisclaimerText: html,
-      ApplyHtmlDisclaimerFallbackAction: "Wrap",
-      ExceptIfSubjectOrBodyContainsWords: DEDUP_MARKER,
-      SentToScope: "NotInOrganization",
-      Mode: "Enforce",
-    });
+      ...sharedParams,
+    };
+    if (scope === "all") {
+      updateParams.SentToScope = null;
+    }
+    await callExchangeCmdlet("Set-TransportRule", updateParams);
   } else {
-    await callExchangeCmdlet("New-TransportRule", params);
+    await callExchangeCmdlet("New-TransportRule", {
+      Name: RULE_NAME,
+      ...sharedParams,
+    });
   }
 }
 
