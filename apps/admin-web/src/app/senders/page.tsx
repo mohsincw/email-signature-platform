@@ -1,9 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Trash2, Cloud, Copy, Upload } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Trash2, Cloud, Copy, Upload, CheckCircle2, AlertCircle } from "lucide-react";
 import type { SenderDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return "Never";
+  const t = new Date(iso).getTime();
+  const diff = Date.now() - t;
+  const min = 60_000, hour = 60 * min, day = 24 * hour;
+  if (diff < min) return "just now";
+  if (diff < hour) return `${Math.floor(diff / min)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+  if (diff < 30 * day) return `${Math.floor(diff / day)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default function SendersPage() {
   const [senders, setSenders] = useState<SenderDto[]>([]);
@@ -14,13 +26,24 @@ export default function SendersPage() {
   const [deploying, setDeploying] = useState(false);
   const [deployMessage, setDeployMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refresh = () =>
     api.senders.list().then((data) => {
       setSenders(data);
       setLoading(false);
     });
-    api.outlook.getStatus().then((s) => setOutlookConfigured(s.configured)).catch(() => {});
+
+  useEffect(() => {
+    refresh();
+    api.outlook
+      .getStatus()
+      .then((s) => setOutlookConfigured(s.configured))
+      .catch(() => {});
   }, []);
+
+  const enabledCount = useMemo(
+    () => senders.filter((s) => s.enabled).length,
+    [senders]
+  );
 
   const toggleEnabled = async (sender: SenderDto) => {
     const updated = await api.senders.update(sender.id, {
@@ -54,7 +77,9 @@ export default function SendersPage() {
         phone: sender.phone ?? undefined,
         phone2: sender.phone2 ?? undefined,
       });
-      setSenders((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setSenders((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
+      );
     } catch (err: any) {
       alert(`Failed to duplicate: ${err.message}`);
     }
@@ -79,10 +104,13 @@ export default function SendersPage() {
 
   const deleteSelected = async () => {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} sender${selected.size > 1 ? "s" : ""}?`)) return;
+    if (!confirm(`Delete ${selected.size} sender${selected.size > 1 ? "s" : ""}?`))
+      return;
     setDeleting(true);
     try {
-      await Promise.all(Array.from(selected).map((id) => api.senders.delete(id)));
+      await Promise.all(
+        Array.from(selected).map((id) => api.senders.delete(id))
+      );
       setSenders((prev) => prev.filter((s) => !selected.has(s.id)));
       setSelected(new Set());
     } catch {
@@ -91,6 +119,32 @@ export default function SendersPage() {
       setDeleting(false);
     }
   };
+
+  const deployIds = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setDeploying(true);
+    setDeployMessage(null);
+    try {
+      const results = await api.outlook.deploy(ids);
+      const ok = results.filter((r) => r.success).length;
+      const fail = results.filter((r) => !r.success).length;
+      setDeployMessage(
+        fail === 0
+          ? `Deployed ${ok} signature${ok !== 1 ? "s" : ""} to Outlook`
+          : `${ok} deployed, ${fail} failed`
+      );
+      await refresh();
+    } catch (err: any) {
+      setDeployMessage(`Deploy failed: ${err.message}`);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const deployAll = () =>
+    deployIds(senders.filter((s) => s.enabled).map((s) => s.id));
+
+  const deploySelected = () => deployIds(Array.from(selected));
 
   if (loading) return <p>Loading...</p>;
 
@@ -108,29 +162,23 @@ export default function SendersPage() {
         <div className="actions">
           {selected.size > 0 && outlookConfigured && (
             <button
-              onClick={async () => {
-                setDeploying(true);
-                setDeployMessage(null);
-                try {
-                  const results = await api.outlook.deploy(Array.from(selected));
-                  const ok = results.filter((r) => r.success).length;
-                  const fail = results.filter((r) => !r.success).length;
-                  setDeployMessage(
-                    fail === 0
-                      ? `Deployed ${ok} signature${ok !== 1 ? "s" : ""} to Outlook`
-                      : `${ok} deployed, ${fail} failed`
-                  );
-                } catch (err: any) {
-                  setDeployMessage(`Deploy failed: ${err.message}`);
-                } finally {
-                  setDeploying(false);
-                }
-              }}
+              onClick={deploySelected}
               className="btn btn-primary"
               disabled={deploying}
             >
               <Cloud size={16} strokeWidth={2} />
-              {deploying ? "Deploying..." : `Deploy to Outlook (${selected.size})`}
+              {deploying ? "Deploying..." : `Deploy Selected (${selected.size})`}
+            </button>
+          )}
+          {selected.size === 0 && outlookConfigured && enabledCount > 0 && (
+            <button
+              onClick={deployAll}
+              className="btn btn-primary"
+              disabled={deploying}
+              title={`Deploy all ${enabledCount} enabled senders`}
+            >
+              <Cloud size={16} strokeWidth={2} />
+              {deploying ? "Deploying..." : `Deploy All (${enabledCount})`}
             </button>
           )}
           {selected.size > 0 && (
@@ -152,6 +200,26 @@ export default function SendersPage() {
           </a>
         </div>
       </div>
+
+      {!outlookConfigured && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "10px 14px",
+            borderRadius: 8,
+            fontSize: 13,
+            background: "#FFFBEB",
+            color: "#92400E",
+            border: "1px solid #FCD34D",
+          }}
+        >
+          ⓘ Outlook auto-deploy is not configured. Set{" "}
+          <code>AZURE_TENANT_ID</code>, <code>AZURE_CLIENT_ID</code>, and{" "}
+          <code>AZURE_CLIENT_SECRET</code> in Vercel to enable one-click
+          deployment.
+        </div>
+      )}
+
       {deployMessage && (
         <div
           style={{
@@ -161,12 +229,15 @@ export default function SendersPage() {
             fontSize: 13,
             background: deployMessage.includes("failed") ? "#FEF2F2" : "#F0FDF4",
             color: deployMessage.includes("failed") ? "#DC2626" : "#16A34A",
-            border: `1px solid ${deployMessage.includes("failed") ? "#FECACA" : "#BBF7D0"}`,
+            border: `1px solid ${
+              deployMessage.includes("failed") ? "#FECACA" : "#BBF7D0"
+            }`,
           }}
         >
           {deployMessage}
         </div>
       )}
+
       <div className="card">
         <table>
           <thead>
@@ -174,7 +245,9 @@ export default function SendersPage() {
               <th style={{ width: 40 }}>
                 <input
                   type="checkbox"
-                  checked={senders.length > 0 && selected.size === senders.length}
+                  checked={
+                    senders.length > 0 && selected.size === senders.length
+                  }
                   onChange={toggleSelectAll}
                   style={{ cursor: "pointer", width: 16, height: 16 }}
                 />
@@ -184,6 +257,7 @@ export default function SendersPage() {
               <th>Title</th>
               <th>Phone</th>
               <th>Status</th>
+              <th>Last Deployed</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -209,9 +283,38 @@ export default function SendersPage() {
                 <td>{sender.phone ?? "-"}</td>
                 <td>
                   <span
-                    className={`badge ${sender.enabled ? "badge-active" : "badge-inactive"}`}
+                    className={`badge ${
+                      sender.enabled ? "badge-active" : "badge-inactive"
+                    }`}
                   >
                     {sender.enabled ? "Active" : "Disabled"}
+                  </span>
+                </td>
+                <td
+                  style={{
+                    fontSize: 12,
+                    color:
+                      sender.lastDeployedStatus === "failed"
+                        ? "#DC2626"
+                        : sender.lastDeployedStatus === "success"
+                        ? "#16A34A"
+                        : "#A3A3A3",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    {sender.lastDeployedStatus === "success" && (
+                      <CheckCircle2 size={12} strokeWidth={2.5} />
+                    )}
+                    {sender.lastDeployedStatus === "failed" && (
+                      <AlertCircle size={12} strokeWidth={2.5} />
+                    )}
+                    {relativeTime(sender.lastDeployedAt)}
                   </span>
                 </td>
                 <td className="actions">
@@ -228,6 +331,16 @@ export default function SendersPage() {
                   >
                     <Copy size={14} strokeWidth={2} />
                   </button>
+                  {outlookConfigured && (
+                    <button
+                      onClick={() => deployIds([sender.id])}
+                      className="btn btn-secondary"
+                      disabled={deploying}
+                      title="Deploy this signature to Outlook"
+                    >
+                      <Cloud size={14} strokeWidth={2} />
+                    </button>
+                  )}
                   <button
                     onClick={() => toggleEnabled(sender)}
                     className="btn btn-secondary"
@@ -245,8 +358,9 @@ export default function SendersPage() {
             ))}
             {senders.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", color: "#999" }}>
-                  No senders yet
+                <td colSpan={8} style={{ textAlign: "center", color: "#999" }}>
+                  No senders yet — click <strong>Add Sender</strong> or{" "}
+                  <strong>Bulk Import</strong> to get started.
                 </td>
               </tr>
             )}

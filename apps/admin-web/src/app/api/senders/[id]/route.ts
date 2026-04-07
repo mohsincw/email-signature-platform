@@ -13,7 +13,12 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   try {
     requireAuth(req);
     const { id } = await params;
-    const sender = await prisma.sender.findUnique({ where: { id } });
+    const sender = await prisma.sender.findUnique({
+      where: { id },
+      include: {
+        deployments: { orderBy: { deployedAt: "desc" }, take: 1 },
+      },
+    });
     if (!sender) throw new ApiError(404, "Sender not found");
     return NextResponse.json(senderToDto(sender));
   } catch (err) {
@@ -38,6 +43,9 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         phone2: body.phone2 ?? undefined,
         enabled: body.enabled ?? undefined,
         imageKey: body.imageKey ?? undefined,
+      },
+      include: {
+        deployments: { orderBy: { deployedAt: "desc" }, take: 1 },
       },
     });
     return NextResponse.json(senderToDto(sender));

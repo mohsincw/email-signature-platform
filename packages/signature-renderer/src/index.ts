@@ -39,13 +39,13 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
   const font =
     "'Myriad Pro', 'Source Sans Pro', 'Open Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif";
 
-  // Left column: logo + badge
+  // Left column: logo + badge (centred horizontally inside the cell)
   let leftCol = '';
   if (logoUrl) {
-    leftCol += `<img src="${esc(logoUrl)}" alt="chaiiwala" width="140" style="display:block;width:140px;height:auto;" />`;
+    leftCol += `<img src="${esc(logoUrl)}" alt="chaiiwala" width="140" style="display:block;width:140px;height:auto;margin:0 auto;" />`;
   }
   if (badgeUrl) {
-    leftCol += `<img src="${esc(badgeUrl)}" alt="5 Star Franchisee Satisfaction" width="120" style="display:block;width:120px;height:auto;margin-top:10px;" />`;
+    leftCol += `<img src="${esc(badgeUrl)}" alt="5 Star Franchisee Satisfaction" width="120" style="display:block;width:120px;height:auto;margin:14px auto 0;" />`;
   }
 
   // Right column: contact details
@@ -96,8 +96,8 @@ export function renderSignatureHtml(input: SignatureRenderInput): string {
     '<div style="margin-top:20px;">',
     '<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">',
     '<tr>',
-    // Left column — logo + badge
-    `<td style="vertical-align:top;padding-right:24px;border-right:2px solid #000000;width:150px;" valign="top">`,
+    // Left column — logo + badge, vertically centred and horizontally centred
+    `<td align="center" style="vertical-align:middle;text-align:center;padding-right:24px;border-right:2px solid #000000;width:150px;" valign="middle">`,
     leftCol,
     '</td>',
     // Right column — contact info

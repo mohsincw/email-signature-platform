@@ -10,6 +10,8 @@ export interface SenderDto {
   imageUrl: string | null;
   createdAt: string;
   updatedAt: string;
+  lastDeployedAt: string | null;
+  lastDeployedStatus: string | null;
 }
 
 export interface CreateSenderDto {

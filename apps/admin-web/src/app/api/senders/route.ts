@@ -10,7 +10,15 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     requireAuth(req);
-    const senders = await prisma.sender.findMany({ orderBy: { name: "asc" } });
+    const senders = await prisma.sender.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        deployments: {
+          orderBy: { deployedAt: "desc" },
+          take: 1,
+        },
+      },
+    });
     return NextResponse.json(senders.map(senderToDto));
   } catch (err) {
     return errorResponse(err);
@@ -31,6 +39,9 @@ export async function POST(req: NextRequest) {
         title: body.title ?? null,
         phone: body.phone ?? null,
         phone2: body.phone2 ?? null,
+      },
+      include: {
+        deployments: { orderBy: { deployedAt: "desc" }, take: 1 },
       },
     });
     return NextResponse.json(senderToDto(sender));

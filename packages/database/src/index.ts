@@ -16,4 +16,4 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export { PrismaClient } from "@prisma/client";
-export type { Sender, GlobalSettings } from "@prisma/client";
+export type { Sender, GlobalSettings, DeploymentLog, AdminUser } from "@prisma/client";

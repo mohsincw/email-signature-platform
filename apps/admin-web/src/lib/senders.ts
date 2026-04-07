@@ -1,8 +1,11 @@
-import type { Sender } from "@esp/database";
+import type { Sender, DeploymentLog } from "@esp/database";
 import type { SenderDto } from "@esp/shared-types";
 import { s3PublicUrl } from "./s3";
 
-export function senderToDto(sender: Sender): SenderDto {
+type SenderWithDeployments = Sender & { deployments?: DeploymentLog[] };
+
+export function senderToDto(sender: SenderWithDeployments): SenderDto {
+  const lastDeployment = sender.deployments?.[0];
   return {
     id: sender.id,
     email: sender.email,
@@ -15,5 +18,7 @@ export function senderToDto(sender: Sender): SenderDto {
     imageUrl: sender.imageKey ? `${s3PublicUrl}/${sender.imageKey}` : null,
     createdAt: sender.createdAt.toISOString(),
     updatedAt: sender.updatedAt.toISOString(),
+    lastDeployedAt: lastDeployment ? lastDeployment.deployedAt.toISOString() : null,
+    lastDeployedStatus: lastDeployment ? lastDeployment.status : null,
   };
 }

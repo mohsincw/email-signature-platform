@@ -1,11 +1,12 @@
 "use client";
 
-import { Users, Settings, Eye, LogOut, Sparkles } from "lucide-react";
+import { Users, Settings, Eye, LogOut, Sparkles, LayoutDashboard } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "./AuthProvider";
 
 const navItems = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/generate", label: "Generate", icon: Sparkles },
   { href: "/senders", label: "Senders", icon: Users },
   { href: "/settings", label: "Global Settings", icon: Settings },
@@ -35,7 +36,12 @@ export function Sidebar() {
             <li key={href}>
               <Link
                 href={href}
-                className={pathname === href || pathname.startsWith(href + "/") ? "active" : ""}
+                className={
+                  pathname === href ||
+                  (href !== "/" && pathname.startsWith(href + "/"))
+                    ? "active"
+                    : ""
+                }
               >
                 <Icon size={18} strokeWidth={2} />
                 {label}

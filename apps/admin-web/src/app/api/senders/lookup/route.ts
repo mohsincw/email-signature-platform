@@ -11,7 +11,10 @@ export async function GET(req: NextRequest) {
   try {
     const email = req.nextUrl.searchParams.get("email");
     if (!email) return NextResponse.json(null);
-    const sender = await prisma.sender.findUnique({ where: { email } });
+    const sender = await prisma.sender.findUnique({
+      where: { email },
+      include: { deployments: { orderBy: { deployedAt: "desc" }, take: 1 } },
+    });
     return NextResponse.json(sender ? senderToDto(sender) : null);
   } catch (err) {
     return errorResponse(err);
