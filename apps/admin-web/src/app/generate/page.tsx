@@ -15,7 +15,7 @@ export default function GeneratePage() {
   const [phone, setPhone] = useState("");
 
   const [copied, setCopied] = useState(false);
-  const copyTimeout = useRef<NodeJS.Timeout>();
+  const copyTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const fallbackSettings: GlobalSettingsDto = {
     addressLine1: "90 Freemens Common Road",

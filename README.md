@@ -1,14 +1,13 @@
 # Email Signature Platform
 
-Internal email signature management platform that automatically appends branded signatures to outbound Microsoft 365 email.
+Internal email signature management platform for Chaiiwala's Microsoft 365 organisation.
 
 ## Architecture
 
 | Component | Path | Port | Description |
 |-----------|------|------|-------------|
-| Admin Web | `apps/admin-web` | 3000 | Next.js admin UI for managing senders and settings |
-| API | `apps/api` | 3001 | NestJS REST API |
-| Mail Processor | `apps/mail-processor` | 2525 | SMTP server that intercepts and signs outbound email |
+| Admin Web | `apps/admin-web` | 3000 | Next.js admin UI + API routes (auth, senders, settings, Outlook deploy) |
+| Mail Processor | `apps/mail-processor` | 2525 | SMTP server that intercepts and signs outbound email (self-hosted, not on Vercel) |
 
 ### Shared Packages
 
@@ -21,7 +20,7 @@ Internal email signature management platform that automatically appends branded 
 
 - Node.js 20+
 - pnpm 9+
-- Docker & Docker Compose
+- Docker & Docker Compose (for local Postgres + MinIO)
 
 ## Local Setup
 
@@ -32,7 +31,7 @@ cd infrastructure/docker
 docker compose up -d
 ```
 
-This starts PostgreSQL (port 5432) and MinIO S3-compatible storage (port 9000, console on 9001).
+Starts PostgreSQL (5432) and MinIO (9000 / console 9001).
 
 ### 2. Install dependencies
 
@@ -40,15 +39,14 @@ This starts PostgreSQL (port 5432) and MinIO S3-compatible storage (port 9000, c
 pnpm install
 ```
 
-### 3. Set up environment
-
-Copy `.env.example` to `.env` in each app:
+### 3. Configure environment
 
 ```bash
-cp apps/api/.env.example apps/api/.env
 cp apps/admin-web/.env.example apps/admin-web/.env
 cp apps/mail-processor/.env.example apps/mail-processor/.env
 ```
+
+For local dev, set `DATABASE_URL` and `DIRECT_URL` to your local Postgres, and point `S3_*` at MinIO.
 
 ### 4. Set up database
 
@@ -58,40 +56,47 @@ pnpm db:migrate
 pnpm db:seed
 ```
 
-### 5. Run all apps
+### 5. Run
 
 ```bash
 pnpm dev
 ```
 
-Or individually:
+Individual apps:
 
 ```bash
-pnpm dev:api      # API on :3001
-pnpm dev:admin    # Admin UI on :3000
+pnpm dev:admin    # Next.js (UI + API) on :3000
 pnpm dev:mail     # Mail processor on :2525
 ```
 
-## Testing
+## Deployment
 
-```bash
-pnpm test
-```
+The admin UI + API deploy to **Vercel** as a single Next.js project. Database and storage are provided by **Supabase**.
+
+### One-time setup
+
+1. **Supabase** — create a project, copy the pooled `DATABASE_URL` (Transaction pooler, port 6543) and `DIRECT_URL` (Direct connection, port 5432). Create a Storage bucket called `signatures` and enable the S3 connection to get access keys.
+2. **Vercel** — import the GitHub repo. Vercel will pick up `vercel.json` which runs `prisma generate`, `prisma migrate deploy`, then `next build`.
+3. **Environment variables** — set the vars listed in `apps/admin-web/.env.example` in the Vercel project settings.
+4. **First admin user** — run `pnpm db:seed` locally against the Supabase `DIRECT_URL`, or trigger seeding manually. The default admin is read from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`.
+5. **Custom domain** — add `emailsignatures.chaiiwala.co.uk` under Vercel → Settings → Domains.
+
+The mail-processor is **not** deployed to Vercel — it needs a persistent TCP listener. Host it on a VPS when you're ready.
+
+## Database Schema
+
+- **Sender** — email, name, title, phone, enabled flag, optional image key
+- **GlobalSettings** — singleton row (address, website, logo URL, badge URL)
+- **AdminUser** — bcrypt-hashed login
+- **DeploymentLog** — Outlook deployment history per sender
 
 ## Microsoft 365 Integration
 
 See [docs/m365-routing.md](docs/m365-routing.md) for instructions on routing M365 outbound mail through the processor.
 
-## Database Schema
-
-- **Sender** — email, name, title, enabled flag, optional image key
-- **GlobalSettings** — singleton row with shared signature text (HTML + plain)
-
 ## TODO
 
-- [ ] Real S3 presigned upload flow
 - [ ] Admin authentication (SSO / Azure AD)
 - [ ] Microsoft 365 mail flow connector configuration
 - [ ] TLS on mail processor SMTP server
-- [ ] Production deployment configuration
 - [ ] Monitoring and alerting
