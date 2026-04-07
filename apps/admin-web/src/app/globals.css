@@ -1,9 +1,14 @@
 /*
- * Chaiiwala signature manager — clean design system
+ * Chaiiwala signature manager — brand-aligned design system
  *
- * Inspired by CodeTwo: editor as the centre of gravity, generous
- * whitespace, monochrome with subtle greys, single primary action
- * per screen.
+ * Follows Chaiiwala brand guidelines:
+ *   - Primary typeface:  Myriad Pro (Bold for headlines, lowercase,
+ *                        reduced letter-spacing)
+ *   - Body typeface:     Inter as the fallback + for long-form UI text
+ *   - Digital palette:   Karak Beige #e3dbd4  (warm background)
+ *                        Chaii Brown  #937264 (accent, depth)
+ *                        Black + white for logos and core typography
+ *   - Aesthetic:         Clean, modern, minimal, lowercase headings
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -31,35 +36,53 @@
 }
 
 :root {
+  /* ── Chaiiwala brand palette ─────────────────────────────── */
   --black: #0a0a0a;
   --white: #ffffff;
-  --grey-50: #fafafa;
-  --grey-100: #f4f4f5;
-  --grey-200: #e4e4e7;
-  --grey-300: #d4d4d8;
-  --grey-400: #a1a1aa;
-  --grey-500: #71717a;
-  --grey-600: #52525b;
-  --grey-700: #3f3f46;
-  --grey-800: #27272a;
-  --grey-900: #18181b;
+  --karak-beige: #e3dbd4;        /* web primary — warm background */
+  --karak-beige-50: #f5f1ed;     /* softer tint for page bg */
+  --karak-beige-100: #ede6df;
+  --karak-beige-200: #e3dbd4;
+  --chaii-brown: #937264;        /* web primary — accent */
+  --chaii-brown-dark: #7a5d52;   /* hover state */
+  --chaii-brown-light: #c4a99a;  /* subtle accent */
+  --chaii-brown-50: #f7f1ee;     /* lightest tint for hover rows */
 
-  --danger: #dc2626;
-  --danger-bg: #fef2f2;
-  --danger-border: #fecaca;
-  --success: #16a34a;
-  --success-bg: #f0fdf4;
-  --success-border: #bbf7d0;
-  --warning: #d97706;
-  --warning-bg: #fffbeb;
-  --warning-border: #fde68a;
+  /* ── Neutrals (warm-tinted to match beige) ──────────────── */
+  --grey-50: #faf8f6;
+  --grey-100: #f1ede9;
+  --grey-200: #e4ddd6;
+  --grey-300: #d1c8bf;
+  --grey-400: #a39890;
+  --grey-500: #766e68;
+  --grey-600: #565049;
+  --grey-700: #3d3833;
+  --grey-800: #28241f;
+  --grey-900: #1a1613;
+
+  /* ── Semantic states ─────────────────────────────────────── */
+  --danger: #b91c1c;
+  --danger-bg: #fdf1ef;
+  --danger-border: #f5cfc9;
+  --success: #4a7c59;
+  --success-bg: #f1f5f0;
+  --success-border: #cfdecf;
+  --warning: #a1682a;
+  --warning-bg: #fbf4ea;
+  --warning-border: #eedcb4;
 
   --sidebar-width: 224px;
   --content-max: 1200px;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.04);
-  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.06);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px 0 rgb(147 114 100 / 0.06);
+  --shadow-md: 0 6px 20px -4px rgb(147 114 100 / 0.12);
+
+  --font-display:
+    'Myriad Pro', 'Source Sans Pro', 'Inter', -apple-system,
+    BlinkMacSystemFont, sans-serif;
+  --font-body:
+    'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 * {
@@ -69,8 +92,8 @@
 }
 
 html, body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--grey-50);
+  font-family: var(--font-body);
+  background: var(--karak-beige-50);
   color: var(--grey-900);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -92,7 +115,7 @@ button {
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85em;
-  background: var(--grey-100);
+  background: var(--karak-beige-100);
   padding: 1px 6px;
   border-radius: 4px;
   color: var(--grey-700);
@@ -120,7 +143,7 @@ code {
 }
 
 .logo-area {
-  padding: 28px 24px 24px;
+  padding: 32px 24px 28px;
 }
 
 .logo-area a {
@@ -129,16 +152,18 @@ code {
 
 .logo-img {
   display: block;
-  height: 30px;
+  height: 32px;
   width: auto;
 }
 
 .logo-sub {
+  font-family: var(--font-display);
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
-  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 10px;
   font-weight: 400;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.3px;
+  text-transform: lowercase;
 }
 
 .nav-list {
@@ -152,26 +177,28 @@ code {
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: 10px;
   color: rgba(255, 255, 255, 0.55);
   font-size: 14px;
   font-weight: 500;
   transition: color 0.12s, background 0.12s;
   margin-bottom: 2px;
+  text-transform: lowercase;
+  letter-spacing: 0.1px;
 }
 
 .nav-list a:hover {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.9);
   background: rgba(255, 255, 255, 0.04);
 }
 
 .nav-list a.active {
-  background: rgba(255, 255, 255, 0.10);
+  background: var(--chaii-brown);
   color: var(--white);
 }
 
 .sidebar-footer {
-  padding: 16px 16px 20px;
+  padding: 16px 16px 22px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -179,12 +206,13 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
   margin-bottom: 12px;
+  font-weight: 500;
 }
 
 .sidebar-status .dot {
@@ -194,9 +222,9 @@ code {
   flex-shrink: 0;
 }
 
-.sidebar-status .dot.ok { background: #4ade80; }
-.sidebar-status .dot.warn { background: #fbbf24; }
-.sidebar-status .dot.off { background: #71717a; }
+.sidebar-status .dot.ok { background: #86d0a0; }
+.sidebar-status .dot.warn { background: #e3c383; }
+.sidebar-status .dot.off { background: #8a8580; }
 
 .sidebar-user {
   display: flex;
@@ -222,7 +250,7 @@ code {
   padding: 4px;
   display: flex;
   align-items: center;
-  border-radius: 4px;
+  border-radius: 6px;
   transition: color 0.12s, background 0.12s;
 }
 
@@ -235,14 +263,14 @@ code {
 .main-content {
   flex: 1;
   margin-left: var(--sidebar-width);
-  background: var(--grey-50);
+  background: var(--karak-beige-50);
   min-height: 100vh;
 }
 
 .page {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: 40px 48px 80px;
+  padding: 44px 52px 96px;
 }
 
 .page-header {
@@ -250,45 +278,53 @@ code {
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 32px;
+  margin-bottom: 36px;
 }
 
 .page-title {
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.4px;
-  line-height: 1.2;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: -0.8px;
+  line-height: 1.05;
   color: var(--grey-900);
+  text-transform: lowercase;
 }
 
 .page-subtitle {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--grey-500);
-  margin-top: 4px;
+  margin-top: 6px;
   font-weight: 400;
 }
 
 h1 {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.5px;
-  line-height: 1.2;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: -0.8px;
+  line-height: 1.05;
   color: var(--grey-900);
+  text-transform: lowercase;
 }
 
 h2 {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  line-height: 1.3;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
   color: var(--grey-900);
+  text-transform: lowercase;
 }
 
 h3 {
+  font-family: var(--font-display);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 900;
   color: var(--grey-900);
   letter-spacing: -0.1px;
+  text-transform: lowercase;
 }
 
 p {
@@ -300,7 +336,8 @@ p {
   background: var(--white);
   border-radius: var(--radius);
   padding: 28px;
-  border: 1px solid var(--grey-200);
+  border: 1px solid var(--karak-beige-200);
+  box-shadow: var(--shadow-sm);
   margin-bottom: 20px;
 }
 
@@ -309,10 +346,13 @@ p {
 }
 
 .card-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 900;
   color: var(--grey-900);
   margin-bottom: 4px;
+  text-transform: lowercase;
+  letter-spacing: -0.2px;
 }
 
 .card-subtitle {
@@ -327,7 +367,7 @@ p {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 9px 16px;
+  padding: 9px 18px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-family: inherit;
@@ -338,6 +378,7 @@ p {
   transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
   white-space: nowrap;
   user-select: none;
+  letter-spacing: 0.05px;
 }
 
 .btn:disabled {
@@ -352,19 +393,19 @@ p {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--grey-800);
-  border-color: var(--grey-800);
+  background: var(--chaii-brown);
+  border-color: var(--chaii-brown);
 }
 
 .btn-secondary {
   background: var(--white);
   color: var(--grey-800);
-  border-color: var(--grey-300);
+  border-color: var(--karak-beige-200);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--grey-50);
-  border-color: var(--grey-400);
+  background: var(--karak-beige-50);
+  border-color: var(--chaii-brown-light);
 }
 
 .btn-ghost {
@@ -374,7 +415,7 @@ p {
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: var(--grey-100);
+  background: var(--karak-beige-100);
   color: var(--grey-900);
 }
 
@@ -385,23 +426,23 @@ p {
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #b91c1c;
-  border-color: #b91c1c;
+  background: #991b1b;
+  border-color: #991b1b;
 }
 
 .btn-icon {
   padding: 8px;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
 }
 
 .btn-sm {
-  padding: 6px 12px;
+  padding: 7px 14px;
   font-size: 12px;
 }
 
 .btn-lg {
-  padding: 12px 22px;
+  padding: 12px 24px;
   font-size: 14px;
 }
 
@@ -416,10 +457,13 @@ p {
 
 .form-group label {
   display: block;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 6px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 7px;
   color: var(--grey-700);
+  text-transform: lowercase;
+  letter-spacing: 0.1px;
 }
 
 .form-group .form-help {
@@ -433,8 +477,8 @@ p {
 .form-group textarea,
 .form-group select {
   width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--grey-300);
+  padding: 11px 14px;
+  border: 1px solid var(--karak-beige-200);
   border-radius: var(--radius-sm);
   font-size: 14px;
   font-family: inherit;
@@ -452,8 +496,8 @@ p {
 .form-group textarea:focus,
 .form-group select:focus {
   outline: none;
-  border-color: var(--grey-900);
-  box-shadow: 0 0 0 3px var(--grey-100);
+  border-color: var(--chaii-brown);
+  box-shadow: 0 0 0 3px var(--karak-beige-100);
 }
 
 .form-group textarea {
@@ -482,21 +526,22 @@ table {
 
 th {
   text-align: left;
-  padding: 10px 16px;
+  padding: 12px 18px;
+  font-family: var(--font-display);
   font-size: 11px;
-  font-weight: 500;
-  color: var(--grey-500);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  border-bottom: 1px solid var(--grey-200);
-  background: var(--grey-50);
+  font-weight: 900;
+  color: var(--grey-600);
+  text-transform: lowercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid var(--karak-beige-200);
+  background: var(--karak-beige-50);
 }
 
 td {
-  padding: 14px 16px;
+  padding: 16px 18px;
   font-size: 14px;
   color: var(--grey-800);
-  border-bottom: 1px solid var(--grey-100);
+  border-bottom: 1px solid var(--karak-beige-100);
 }
 
 tr:last-child td {
@@ -504,14 +549,15 @@ tr:last-child td {
 }
 
 tr:hover td {
-  background: var(--grey-50);
+  background: var(--chaii-brown-50);
 }
 
 .table-card {
   background: var(--white);
-  border: 1px solid var(--grey-200);
+  border: 1px solid var(--karak-beige-200);
   border-radius: var(--radius);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 /* ── Badges ───────────────────────────────────────────────── */
@@ -522,8 +568,9 @@ tr:hover td {
   padding: 3px 10px;
   border-radius: 9999px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.1px;
+  text-transform: lowercase;
 }
 
 .badge-active {
@@ -533,9 +580,9 @@ tr:hover td {
 }
 
 .badge-inactive {
-  background: var(--grey-100);
+  background: var(--karak-beige-100);
   color: var(--grey-500);
-  border: 1px solid var(--grey-200);
+  border: 1px solid var(--karak-beige-200);
 }
 
 .badge-warning {
@@ -560,12 +607,12 @@ tr:hover td {
   font-size: 13px;
   margin-bottom: 20px;
   border: 1px solid;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .banner-info {
-  background: var(--grey-50);
-  border-color: var(--grey-200);
+  background: var(--karak-beige-50);
+  border-color: var(--karak-beige-200);
   color: var(--grey-700);
 }
 
@@ -610,7 +657,7 @@ tr:hover td {
   color: var(--grey-500);
 }
 
-/* Floating action bar that appears when rows are selected */
+/* Floating action bar — dark pill, Chaii Brown accent */
 .action-bar {
   position: fixed;
   bottom: 24px;
@@ -618,15 +665,16 @@ tr:hover td {
   transform: translateX(calc(-50% + var(--sidebar-width) / 2));
   background: var(--black);
   color: var(--white);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 10px 16px 10px 20px;
-  box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.3);
+  box-shadow: 0 16px 40px -10px rgb(26 22 19 / 0.35);
   display: flex;
   align-items: center;
   gap: 16px;
   z-index: 30;
   font-size: 13px;
   animation: action-bar-in 0.18s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .action-bar .count {
@@ -646,7 +694,7 @@ tr:hover td {
   font-size: 13px;
   font-weight: 500;
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -679,12 +727,12 @@ tr:hover td {
   color: var(--grey-500);
   cursor: pointer;
   padding: 6px;
-  border-radius: 6px;
+  border-radius: 8px;
   display: inline-flex;
 }
 
 .kebab-trigger:hover {
-  background: var(--grey-100);
+  background: var(--karak-beige-100);
   color: var(--grey-800);
 }
 
@@ -694,10 +742,10 @@ tr:hover td {
   right: 0;
   margin-top: 4px;
   background: var(--white);
-  border: 1px solid var(--grey-200);
+  border: 1px solid var(--karak-beige-200);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
-  min-width: 160px;
+  min-width: 170px;
   padding: 4px;
   z-index: 50;
 }
@@ -707,19 +755,20 @@ tr:hover td {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 9px 12px;
   background: transparent;
   border: none;
   font-size: 13px;
   color: var(--grey-800);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 6px;
   text-align: left;
   text-decoration: none;
+  font-family: inherit;
 }
 
 .kebab-item:hover {
-  background: var(--grey-100);
+  background: var(--karak-beige-50);
 }
 
 .kebab-item.danger {
@@ -732,7 +781,7 @@ tr:hover td {
 
 .kebab-divider {
   height: 1px;
-  background: var(--grey-200);
+  background: var(--karak-beige-200);
   margin: 4px 0;
 }
 
@@ -741,5 +790,5 @@ input[type="checkbox"] {
   width: 16px;
   height: 16px;
   cursor: pointer;
-  accent-color: var(--black);
+  accent-color: var(--chaii-brown);
 }
