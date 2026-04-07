@@ -30,7 +30,8 @@ export default function DashboardPage() {
   const [deployMsg, setDeployMsg] = useState<string | null>(null);
   const [enablingRoaming, setEnablingRoaming] = useState(false);
   const [roamingMsg, setRoamingMsg] = useState<string | null>(null);
-  const [serverSideEnabled, setServerSideEnabled] = useState<boolean | null>(null);
+  const [serverSideEnabled, setServerSideEnabled] = useState<boolean>(false);
+  const [serverSideStatusLoaded, setServerSideStatusLoaded] = useState(false);
   const [togglingServerSide, setTogglingServerSide] = useState(false);
   const [serverSideMsg, setServerSideMsg] = useState<string | null>(null);
 
@@ -48,8 +49,23 @@ export default function DashboardPage() {
       if (o?.configured) {
         api.admin
           .serverSideStatus()
-          .then((s) => setServerSideEnabled(s.enabled))
-          .catch(() => setServerSideEnabled(null));
+          .then((s) => {
+            setServerSideEnabled(s.enabled);
+            setServerSideStatusLoaded(true);
+          })
+          .catch((err) => {
+            // Failed to read transport rule status — usually because the
+            // Azure app doesn't have Exchange.ManageAsApp + Exchange Admin
+            // role assigned yet. Don't lock the button — let the user
+            // click and surface the real error from the enable endpoint.
+            setServerSideEnabled(false);
+            setServerSideStatusLoaded(true);
+            setServerSideMsg(
+              `Could not read transport rule status: ${err?.message ?? "unknown"}. You can still try Enable below to see the full error.`
+            );
+          });
+      } else {
+        setServerSideStatusLoaded(true);
       }
     });
   }, []);
@@ -344,7 +360,7 @@ export default function DashboardPage() {
             }}
           >
             <h3 style={{ margin: 0 }}>Server-Side Mode</h3>
-            {serverSideEnabled === true && (
+            {serverSideStatusLoaded && serverSideEnabled === true && (
               <span
                 style={{
                   fontSize: 12,
@@ -359,7 +375,7 @@ export default function DashboardPage() {
                 ✓ Active
               </span>
             )}
-            {serverSideEnabled === false && (
+            {serverSideStatusLoaded && serverSideEnabled === false && (
               <span
                 style={{
                   fontSize: 12,
@@ -387,7 +403,7 @@ export default function DashboardPage() {
               serverSideEnabled ? "btn btn-secondary" : "btn btn-primary"
             }
             onClick={toggleServerSide}
-            disabled={togglingServerSide || serverSideEnabled === null}
+            disabled={togglingServerSide}
           >
             {togglingServerSide
               ? serverSideEnabled

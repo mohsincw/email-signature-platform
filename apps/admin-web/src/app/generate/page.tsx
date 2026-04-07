@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Copy, CheckCircle, Image as ImageIcon } from "lucide-react";
+import { Copy, CheckCircle, Image as ImageIcon, Eye, Code, Mail } from "lucide-react";
 import type { SenderDto, GlobalSettingsDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
+
+type ViewMode = "live" | "html" | "thread";
 
 export default function GeneratePage() {
   const [senders, setSenders] = useState<SenderDto[]>([]);
@@ -16,6 +18,10 @@ export default function GeneratePage() {
 
   const [copied, setCopied] = useState(false);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  const [viewMode, setViewMode] = useState<ViewMode>("live");
+  const [renderedHtml, setRenderedHtml] = useState<string>("");
+  const [renderingHtml, setRenderingHtml] = useState(false);
 
   const fallbackSettings: GlobalSettingsDto = {
     addressLine1: "90 Freemens Common Road",
@@ -31,6 +37,33 @@ export default function GeneratePage() {
     api.settings.get().then(setSettings).catch(() => setSettings(fallbackSettings));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-render HTML on the server whenever the inputs change AND we're
+  // looking at the HTML or Email thread view. Debounced 300ms so typing
+  // doesn't hammer the API.
+  useEffect(() => {
+    if (viewMode === "live") return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setRenderingHtml(true);
+      try {
+        const { html } = await api.senders.renderSignature({
+          name: name || "Full Name",
+          title: title || undefined,
+          phone: phone || undefined,
+        });
+        if (!cancelled) setRenderedHtml(html);
+      } catch {
+        if (!cancelled) setRenderedHtml("<!-- failed to render -->");
+      } finally {
+        if (!cancelled) setRenderingHtml(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [viewMode, name, title, phone]);
 
   const s = settings ?? fallbackSettings;
 
@@ -92,8 +125,53 @@ export default function GeneratePage() {
         </div>
       </div>
 
-      {/* ─── THE SIGNATURE ─── exact replica ─── */}
-      <div className="card" style={{ padding: 0 }}>
+      {/* View mode tabs */}
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          marginBottom: 12,
+          borderBottom: "1px solid #E5E5E5",
+        }}
+      >
+        {(
+          [
+            { id: "live", label: "Live preview", icon: Eye },
+            { id: "html", label: "HTML source", icon: Code },
+            { id: "thread", label: "In an email", icon: Mail },
+          ] as const
+        ).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setViewMode(id)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "10px 14px",
+              border: "none",
+              background: "transparent",
+              fontSize: 13,
+              fontWeight: 500,
+              color: viewMode === id ? "#000" : "#737373",
+              borderBottom:
+                viewMode === id ? "2px solid #000" : "2px solid transparent",
+              marginBottom: -1,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <Icon size={14} strokeWidth={2} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── THE SIGNATURE ─── live editable preview ─── */}
+      <div
+        className="card"
+        style={{ padding: 0, display: viewMode === "live" ? "block" : "none" }}
+      >
         <div style={{ padding: "32px 40px", background: "#fff", borderRadius: 12 }}>
           <table cellPadding={0} cellSpacing={0} border={0} style={{ borderCollapse: "collapse" }}>
             <tbody>
@@ -268,6 +346,149 @@ export default function GeneratePage() {
           )}
         </div>
       </div>
+
+      {/* ─── HTML source view ─── */}
+      {viewMode === "html" && (
+        <div className="card" style={{ padding: 0 }}>
+          <div
+            style={{
+              padding: "12px 16px",
+              borderBottom: "1px solid #E5E5E5",
+              fontSize: 12,
+              color: "#737373",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>
+              {renderingHtml
+                ? "Rendering…"
+                : "Read-only HTML rendered server-side. Click 'Copy Signature HTML' below to copy."}
+            </span>
+            <span style={{ fontSize: 11, color: "#A3A3A3" }}>
+              {renderedHtml.length} chars
+            </span>
+          </div>
+          <pre
+            style={{
+              margin: 0,
+              padding: 20,
+              background: "#0B1020",
+              color: "#E5E7EB",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontSize: 12,
+              lineHeight: 1.6,
+              overflowX: "auto",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+              borderBottomLeftRadius: 12,
+              borderBottomRightRadius: 12,
+              maxHeight: 480,
+              overflowY: "auto",
+            }}
+          >
+            {renderedHtml || "(empty)"}
+          </pre>
+        </div>
+      )}
+
+      {/* ─── Sample email thread view ─── shows the signature inside a fake email so you can sanity-check spacing/colors ─── */}
+      {viewMode === "thread" && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          {/* Fake mail-client chrome */}
+          <div
+            style={{
+              padding: "16px 24px",
+              borderBottom: "1px solid #E5E5E5",
+              background: "#FAFAFA",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 18,
+                fontWeight: 600,
+                color: "#171717",
+                marginBottom: 12,
+              }}
+            >
+              Quick question about next week's launch
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                fontSize: 13,
+                color: "#525252",
+              }}
+            >
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  background: "#000",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  flexShrink: 0,
+                }}
+              >
+                {(name || "FN")
+                  .split(" ")
+                  .map((p) => p[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#171717", fontWeight: 500 }}>
+                  {name || "Full Name"}{" "}
+                  <span style={{ color: "#A3A3A3", fontWeight: 400 }}>
+                    &lt;
+                    {selectedId
+                      ? senders.find((x) => x.id === selectedId)?.email
+                      : "you@chaiiwala.co.uk"}
+                    &gt;
+                  </span>
+                </div>
+                <div style={{ color: "#A3A3A3", fontSize: 12, marginTop: 2 }}>
+                  to client@example.com &middot; just now
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Fake email body */}
+          <div
+            style={{
+              padding: "28px 32px",
+              background: "#fff",
+              fontFamily:
+                "'Aptos', 'Segoe UI', Calibri, Arial, sans-serif",
+              fontSize: 14,
+              color: "#171717",
+              lineHeight: 1.55,
+            }}
+          >
+            <p style={{ margin: "0 0 14px" }}>Hi Sarah,</p>
+            <p style={{ margin: "0 0 14px" }}>
+              Just wanted to follow up on the quick question about next week's
+              launch — happy to jump on a call tomorrow afternoon if that
+              works for you. Let me know what time suits.
+            </p>
+            <p style={{ margin: "0 0 14px" }}>Thanks,</p>
+            <p style={{ margin: "0 0 24px" }}>{name || "Full Name"}</p>
+
+            {/* The actual signature, rendered identically to what gets sent */}
+            <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+          </div>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
