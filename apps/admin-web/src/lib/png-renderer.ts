@@ -74,6 +74,15 @@ interface PngInput {
  * the email body so the image stays small and the legal text is
  * indexable / accessible. The image is the "designer-quality" part.
  */
+// Target display size in the email body. The Satori canvas is rendered
+// at 2x this for retina sharpness, then resvg upscales to 3x for very
+// crisp display when the recipient zooms in.
+export const SIG_DISPLAY_WIDTH = 314;
+export const SIG_DISPLAY_HEIGHT = 154;
+const RENDER_SCALE = 2;
+const CANVAS_W = SIG_DISPLAY_WIDTH * RENDER_SCALE; // 628
+const CANVAS_H = SIG_DISPLAY_HEIGHT * RENDER_SCALE; // 308
+
 export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   const [fontData, logoDataUrl, badgeDataUrl] = await Promise.all([
     loadMyriadProFont(),
@@ -84,14 +93,20 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   const FONT = "Myriad Pro";
   const BLACK = "#000000";
 
+  // Layout sizes are scaled to fit a 314x154 display target. All numbers
+  // here are in 2x logical pixels (so divide by 2 mentally to imagine
+  // what the recipient sees).
+  const LOGO_W = 110;
+  const BADGE_W = 92;
+
   const leftChildren: any[] = [];
   if (logoDataUrl) {
     leftChildren.push({
       type: "img",
       props: {
         src: logoDataUrl,
-        width: 140,
-        style: { width: 140, objectFit: "contain" },
+        width: LOGO_W,
+        style: { width: LOGO_W, objectFit: "contain" },
       },
     });
   }
@@ -100,8 +115,8 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "img",
       props: {
         src: badgeDataUrl,
-        width: 110,
-        style: { width: 110, marginTop: 14, objectFit: "contain" },
+        width: BADGE_W,
+        style: { width: BADGE_W, marginTop: 10, objectFit: "contain" },
       },
     });
   }
@@ -111,11 +126,11 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     type: "div",
     props: {
       style: {
-        fontSize: 36,
+        fontSize: 22,
         fontWeight: 900,
         color: BLACK,
         lineHeight: 1.1,
-        marginBottom: 4,
+        marginBottom: 2,
       },
       children: input.senderName,
     },
@@ -125,12 +140,12 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 13,
+          fontSize: 9,
           fontWeight: 900,
           color: BLACK,
           textTransform: "uppercase",
-          letterSpacing: 2,
-          marginBottom: 18,
+          letterSpacing: 1.4,
+          marginBottom: 10,
         },
         children: input.senderTitle,
       },
@@ -141,10 +156,10 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 28,
+          fontSize: 18,
           fontWeight: 900,
           color: BLACK,
-          lineHeight: 1.2,
+          lineHeight: 1.15,
         },
         children: input.senderPhone,
       },
@@ -155,10 +170,10 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 28,
+          fontSize: 18,
           fontWeight: 900,
           color: BLACK,
-          lineHeight: 1.2,
+          lineHeight: 1.15,
         },
         children: input.senderPhone2,
       },
@@ -166,19 +181,19 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   }
   rightChildren.push({
     type: "div",
-    props: { style: { height: 18 } },
+    props: { style: { height: 8 } },
   });
   if (input.addressLine1) {
     rightChildren.push({
       type: "div",
       props: {
         style: {
-          fontSize: 11,
+          fontSize: 7,
           fontWeight: 900,
           color: BLACK,
           textTransform: "uppercase",
-          letterSpacing: 1.5,
-          lineHeight: 1.6,
+          letterSpacing: 1,
+          lineHeight: 1.5,
         },
         children: input.addressLine1,
       },
@@ -189,12 +204,12 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 11,
+          fontSize: 7,
           fontWeight: 900,
           color: BLACK,
           textTransform: "uppercase",
-          letterSpacing: 1.5,
-          lineHeight: 1.6,
+          letterSpacing: 1,
+          lineHeight: 1.5,
         },
         children: input.addressLine2,
       },
@@ -203,17 +218,15 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   if (input.website) {
     rightChildren.push({
       type: "div",
-      props: {
-        style: { height: 14 },
-      },
+      props: { style: { height: 6 } },
     });
     const display = input.website.replace(/^https?:\/\//, "");
     rightChildren.push({
       type: "div",
       props: {
         style: {
-          fontSize: 18,
-          fontWeight: 400,
+          fontSize: 11,
+          fontWeight: 900,
           color: BLACK,
           display: "flex",
         },
@@ -230,7 +243,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
         flexDirection: "row",
         alignItems: "stretch",
         background: "#ffffff",
-        padding: 24,
+        padding: 12,
         fontFamily: FONT,
       },
       children: [
@@ -242,9 +255,9 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
               flexDirection: "column",
               justifyContent: "center",
               alignItems: "center",
-              paddingRight: 28,
+              paddingRight: 14,
               borderRight: "2px solid #000000",
-              minWidth: 170,
+              minWidth: 130,
             },
             children: leftChildren,
           },
@@ -255,7 +268,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
             style: {
               display: "flex",
               flexDirection: "column",
-              paddingLeft: 28,
+              paddingLeft: 14,
               justifyContent: "center",
             },
             children: rightChildren,
@@ -266,8 +279,8 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   };
 
   const svg = await satori(tree as any, {
-    width: 720,
-    height: 280,
+    width: CANVAS_W,
+    height: CANVAS_H,
     fonts: [
       {
         name: FONT,
@@ -284,8 +297,10 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     ],
   });
 
+  // 3x display size = ~942px wide PNG. Crisp on retina, downscaled by
+  // every email client to the 314px display width.
   const resvg = new Resvg(svg, {
-    fitTo: { mode: "width", value: 1440 }, // 2x DPI for retina
+    fitTo: { mode: "width", value: SIG_DISPLAY_WIDTH * 3 },
   });
   const png = resvg.render().asPng();
   return Buffer.from(png);

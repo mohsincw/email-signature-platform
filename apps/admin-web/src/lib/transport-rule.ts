@@ -19,6 +19,12 @@ import { getPublicBaseUrl } from "./signature-html";
 const RULE_NAME = "ChaiiwalaEmailSignaturePlatform";
 const DEDUP_MARKER = "ESP-SIG-V1";
 
+// Display size for the signature image embedded in every outbound
+// email by the transport rule. Must match png-renderer.ts so the
+// recipient's email client doesn't softly rescale it.
+const SIG_WIDTH = 314;
+const SIG_HEIGHT = 154;
+
 function buildDisclaimerHtml(disclaimer: string): string {
   const base = getPublicBaseUrl();
   if (!base) {
@@ -37,12 +43,12 @@ function buildDisclaimerHtml(disclaimer: string): string {
   const parts = [
     `<!--${DEDUP_MARKER}-->`,
     `<br/><br/>`,
-    `<img src="${imgUrl}" width="540" alt="Chaiiwala signature" style="display:block;width:540px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />`,
+    `<img src="${imgUrl}" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" alt="Chaiiwala signature" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`,
   ];
 
   if (safeDisclaimer) {
     parts.push(
-      `<div style="margin-top:12px;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-style:italic;line-height:1.5;color:#525252;">${safeDisclaimer}</div>`
+      `<div style="margin-top:14px;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${safeDisclaimer}</div>`
     );
   }
 

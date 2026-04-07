@@ -333,13 +333,13 @@ export default function GeneratePage() {
           {s.disclaimer && (
             <div
               style={{
-                marginTop: 22,
+                marginTop: 14,
                 maxWidth: 640,
-                fontFamily: font,
-                fontSize: 11,
+                fontFamily: "Arial, Helvetica, sans-serif",
+                fontSize: 8,
                 fontStyle: "italic",
                 lineHeight: 1.5,
-                color: "#525252",
+                color: "#333333",
               }}
               dangerouslySetInnerHTML={{ __html: s.disclaimer }}
             />

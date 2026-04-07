@@ -25,6 +25,12 @@ export function getPublicBaseUrl(): string {
   return "";
 }
 
+// Display size for the embedded signature image — must match what
+// png-renderer.ts emits so the image isn't scaled on the recipient's
+// end (which would soften it).
+export const SIG_WIDTH = 314;
+export const SIG_HEIGHT = 154;
+
 export function buildPngSignatureHtml(
   senderId: string,
   disclaimer: string
@@ -32,12 +38,10 @@ export function buildPngSignatureHtml(
   const base = getPublicBaseUrl();
   const pngUrl = `${base}/api/senders/${senderId}/preview.png`;
 
-  // 540px is a safe email-client width that still looks crisp on retina
-  // because the PNG is rendered at 1440px and downscaled by the client.
-  const imgTag = `<img src="${pngUrl}" alt="Chaiiwala signature" width="540" style="display:block;width:540px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />`;
+  const imgTag = `<img src="${pngUrl}" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="display:block;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`;
 
   const disclaimerBlock = disclaimer
-    ? `<div style="margin-top:18px;max-width:640px;font-family:'Myriad Pro','Source Sans Pro','Open Sans','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-style:italic;line-height:1.5;color:#525252;">${disclaimer}</div>`
+    ? `<div style="margin-top:14px;max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-style:italic;line-height:1.5;color:#333333;">${disclaimer}</div>`
     : "";
 
   return `<div style="margin-top:20px;">${imgTag}${disclaimerBlock}</div>`;
