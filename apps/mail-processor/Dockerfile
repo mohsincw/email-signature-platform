@@ -38,8 +38,9 @@ COPY packages/signature-png/      packages/signature-png/
 COPY packages/config/             packages/config/
 COPY apps/mail-processor/         apps/mail-processor/
 
-# Generate Prisma client + compile TS
+# Generate Prisma client + compile shared TS package(s) + compile mail-processor
 RUN pnpm --filter @esp/database exec prisma generate && \
+    pnpm --filter @esp/signature-png build && \
     pnpm --filter @esp/mail-processor build
 
 # ─────────────────────────────────────────────────────────────────────
