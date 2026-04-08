@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Users, Settings, LogOut } from "lucide-react";
+import { Pencil, Users, Settings, LogOut, Activity } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 const navItems = [
   { href: "/generate", label: "editor", icon: Pencil, match: ["/generate"] },
   { href: "/senders", label: "people", icon: Users, match: ["/senders"] },
+  { href: "/console", label: "console", icon: Activity, match: ["/console"] },
   { href: "/settings", label: "settings", icon: Settings, match: ["/settings"] },
 ];
 

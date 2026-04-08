@@ -62,3 +62,23 @@ model GlobalSettings {
 
   @@map("global_settings")
 }
+
+/// Event log of every message the mail-processor sees, powering the
+/// live "Console" page in the admin web UI. One row per incoming
+/// message, written at the final decision point (after we know
+/// whether the message was signed / passed through / errored).
+model MailEvent {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now()) @map("created_at")
+  senderEmail    String   @map("sender_email")
+  senderName     String?  @map("sender_name")
+  recipients     String[] @map("recipients")
+  status         String // "signed" | "passthrough" | "already_processed" | "error"
+  reason         String?
+  errorMessage   String?  @map("error_message")
+  originalBytes  Int?     @map("original_bytes")
+  rewrittenBytes Int?     @map("rewritten_bytes")
+
+  @@index([createdAt])
+  @@map("mail_events")
+}

@@ -8,6 +8,7 @@ import {
 } from "./mime-rewriter";
 import { lookupSender } from "./sender-lookup";
 import { relayMessage } from "./relay";
+import { recordEvent } from "./event-log";
 import { logger } from "./logger";
 import { config } from "./config";
 
@@ -84,6 +85,13 @@ export async function createSmtpServer(): Promise<SMTPServer> {
             );
             const rebuilt = await rebuildMessageForRelay(raw);
             await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            await recordEvent({
+              senderEmail: envFrom,
+              recipients: envTo,
+              status: "already_processed",
+              reason: "loop guard",
+              originalBytes: raw.length,
+            });
             return callback();
           }
 
@@ -95,6 +103,13 @@ export async function createSmtpServer(): Promise<SMTPServer> {
             logger.warn("No sender email found — rebuilding for relay");
             const rebuilt = await rebuildMessageForRelay(raw);
             await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            await recordEvent({
+              senderEmail: envFrom || "(unknown)",
+              recipients: envTo,
+              status: "passthrough",
+              reason: "no From header",
+              originalBytes: raw.length,
+            });
             return callback();
           }
 
@@ -106,6 +121,13 @@ export async function createSmtpServer(): Promise<SMTPServer> {
             );
             const rebuilt = await rebuildMessageForRelay(raw);
             await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            await recordEvent({
+              senderEmail,
+              recipients: envTo,
+              status: "passthrough",
+              reason: "sender not in directory",
+              originalBytes: raw.length,
+            });
             return callback();
           }
 
@@ -124,9 +146,24 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           );
 
           await relayMessage(rewritten, { from: envFrom, to: envTo });
+          await recordEvent({
+            senderEmail,
+            senderName: senderData.sender.name,
+            recipients: envTo,
+            status: "signed",
+            originalBytes: raw.length,
+            rewrittenBytes: rewritten.length,
+          });
           callback();
         } catch (err) {
           logger.error({ err, from: envFrom, to: envTo }, "Processing failed");
+          await recordEvent({
+            senderEmail: envFrom || "(unknown)",
+            recipients: envTo,
+            status: "error",
+            errorMessage: err instanceof Error ? err.message : String(err),
+            originalBytes: raw.length,
+          });
           callback(new Error("Processing failed"));
         }
       });
