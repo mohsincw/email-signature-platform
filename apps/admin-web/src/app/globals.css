@@ -556,7 +556,10 @@ tr:hover td {
   background: var(--white);
   border: 1px solid var(--karak-beige-200);
   border-radius: var(--radius);
-  overflow: hidden;
+  /* overflow must stay visible so absolutely-positioned dropdowns
+     (e.g. the row kebab menu) can escape the card bounds instead of
+     getting clipped when opened on a crowded row. */
+  overflow: visible;
   box-shadow: var(--shadow-sm);
 }
 
