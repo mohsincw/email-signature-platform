@@ -1,7 +1,6 @@
 import nodemailer from "nodemailer";
 import { config } from "./config";
 import { logger } from "./logger";
-import { PROCESSED_HEADER, PROCESSED_HEADER_VALUE } from "./mime-rewriter";
 
 /**
  * Relay a pre-built MIME message back to Exchange Online via the smart
@@ -12,6 +11,14 @@ import { PROCESSED_HEADER, PROCESSED_HEADER_VALUE } from "./mime-rewriter";
  * Exchange will then apply DKIM and deliver normally. The transport
  * rule exception on the X-ESP-Processed header prevents Exchange from
  * routing this message back to us in a loop.
+ *
+ * The raw buffer passed in MUST already be a cleanly-rebuilt MIME
+ * (via rewriteMessageWithSignature or rebuildMessageForRelay) with
+ * the X-ESP-Processed header embedded in its header block. Earlier
+ * attempts to prepend the header to the raw SMTP bytes here did not
+ * work — Exchange still saw the previous hop's Received: chain and
+ * bounced with "hop count exceeded". Rebuilding upstream drops the
+ * accumulated routing headers, which is what actually breaks the loop.
  */
 const transport = nodemailer.createTransport({
   host: config.smartHostHost,
@@ -31,36 +38,18 @@ export interface RelayEnvelope {
   to: string[];
 }
 
-/**
- * Prepend the X-ESP-Processed loop-prevention header to a raw MIME
- * buffer. SMTP headers can appear in any order so adding one at the
- * very top of the header block is always valid. We do this on EVERY
- * relay — including "unchanged" pass-throughs for disabled senders,
- * unknown senders and already-processed messages — so Exchange's
- * transport-rule exception reliably stops the message looping back.
- * Without this stamp, any email from a sender not in the database
- * (disabled, new employee, typo) bounces between the droplet and
- * Exchange until hop-count loop detection drops it.
- */
-function stampProcessedHeader(rawMessage: Buffer): Buffer {
-  const headerLine = `${PROCESSED_HEADER}: ${PROCESSED_HEADER_VALUE}\r\n`;
-  return Buffer.concat([Buffer.from(headerLine), rawMessage]);
-}
-
 export async function relayMessage(
   rawMessage: Buffer,
   envelope: RelayEnvelope
 ): Promise<void> {
-  const stamped = stampProcessedHeader(rawMessage);
-
   logger.info(
-    { from: envelope.from, to: envelope.to, bytes: stamped.length },
+    { from: envelope.from, to: envelope.to, bytes: rawMessage.length },
     "Relaying processed message to smart host"
   );
 
   await transport.sendMail({
     envelope,
-    raw: stamped,
+    raw: rawMessage,
   });
 }
 

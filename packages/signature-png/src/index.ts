@@ -277,6 +277,12 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     type: "div",
     props: {
       style: {
+        // Explicit width + height so the root fills the whole Satori
+        // viewport. Without this the root sizes to its children and
+        // the remaining canvas renders as a transparent area (which
+        // shows as black in the recipient's dark-mode email client).
+        width: "100%",
+        height: "100%",
         display: "flex",
         flexDirection: "row",
         alignItems: "stretch",
@@ -304,6 +310,9 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
           type: "div",
           props: {
             style: {
+              // flex: 1 so the text column grows into the remaining
+              // horizontal space rather than shrinking to its content.
+              flex: 1,
               display: "flex",
               flexDirection: "column",
               paddingLeft: 18,

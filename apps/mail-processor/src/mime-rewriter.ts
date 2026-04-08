@@ -163,6 +163,75 @@ export async function rewriteMessageWithSignature(
 }
 
 /**
+ * Pass-through rebuild for unknown / disabled senders. We parse the
+ * incoming MIME, then rebuild it cleanly via nodemailer (same path
+ * the signed messages use), which:
+ *
+ *   1. Drops all of Exchange's accumulated routing / ARC / X-MS-*
+ *      headers from the previous hop — critical because otherwise
+ *      Exchange treats the return trip as a loop and bounces with
+ *      `554 5.4.14 Hop count exceeded`.
+ *   2. Embeds the X-ESP-Processed loop-prevention header inside the
+ *      proper MIME header block via nodemailer's `headers` option,
+ *      which is the form Exchange's transport rule exception
+ *      reliably matches. (Prepending it to the raw buffer before
+ *      handing to nodemailer's `raw:` mode did NOT work in practice
+ *      — Exchange still counted the pre-existing Received: hops.)
+ *
+ * No signature is injected. The body passes through untouched.
+ */
+export async function rebuildMessageForRelay(
+  rawMessage: Buffer
+): Promise<Buffer> {
+  const parsed: ParsedMail = await simpleParser(rawMessage);
+
+  const from = formatAddressList(parsed.from);
+  const to = formatAddressList(parsed.to);
+  const cc = formatAddressList(parsed.cc);
+  const bcc = formatAddressList(parsed.bcc);
+  const replyTo = formatAddressList(parsed.replyTo);
+
+  const originalAttachments = (parsed.attachments || []).map((att) => ({
+    filename: att.filename,
+    content: att.content,
+    contentType: att.contentType,
+    cid: att.cid,
+    contentDisposition: (att.contentDisposition as any) || "attachment",
+  }));
+
+  const streamTransport = nodemailer.createTransport({
+    streamTransport: true,
+    buffer: true,
+  });
+
+  const info = await streamTransport.sendMail({
+    from,
+    to,
+    cc,
+    bcc,
+    replyTo,
+    subject: parsed.subject,
+    text: parsed.text ?? undefined,
+    html: typeof parsed.html === "string" ? parsed.html : undefined,
+    date: parsed.date ?? new Date(),
+    messageId: parsed.messageId,
+    references: parsed.references as any,
+    inReplyTo: parsed.inReplyTo,
+    headers: {
+      [PROCESSED_HEADER]: PROCESSED_HEADER_VALUE,
+    },
+    attachments: originalAttachments,
+  });
+
+  logger.debug(
+    { from, messageId: parsed.messageId },
+    "Rebuilt MIME for pass-through relay (no signature)"
+  );
+
+  return info.message as Buffer;
+}
+
+/**
  * Insert the signature snippet into an HTML body at the right spot:
  * immediately above the forward/reply quoted content if we can find
  * a well-known boundary marker, otherwise just before </body>, or at
