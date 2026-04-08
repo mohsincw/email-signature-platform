@@ -281,10 +281,12 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     });
   }
 
-  // Build the right column children — one <div> per group, so
-  // justifyContent: space-between on the column operates on groups
-  // rather than on every individual text line (which would create
-  // awkward gaps between name and title, etc.).
+  // Build the right column children — one <div> per group. The
+  // right column uses justifyContent: center so the whole cluster
+  // sits in the middle of the frame; the groups get a small explicit
+  // margin between them for rhythm without the huge gaps space-
+  // between produced.
+  const GROUP_GAP = 14;
   const rightChildren: any[] = [
     {
       type: "div",
@@ -298,7 +300,11 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     rightChildren.push({
       type: "div",
       props: {
-        style: { display: "flex", flexDirection: "column" },
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          marginTop: GROUP_GAP,
+        },
         children: contactGroup,
       },
     });
@@ -307,7 +313,11 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     rightChildren.push({
       type: "div",
       props: {
-        style: { display: "flex", flexDirection: "column" },
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          marginTop: GROUP_GAP,
+        },
         children: websiteGroup,
       },
     });
@@ -365,11 +375,13 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
               display: "flex",
               flexDirection: "column",
               paddingLeft: 18,
-              // space-between pins the name/title group to the top,
-              // the contact group to the middle, and the website group
-              // to the bottom, so the content fills the frame height
-              // instead of sitting centred in a sea of white.
-              justifyContent: "space-between",
+              // Centre the grouped content vertically. space-between
+              // pushed the groups to the top/bottom extremes which
+              // left visible empty bands between them; centred
+              // keeps each group with its natural internal spacing
+              // and lets the cluster sit compactly in the middle of
+              // the frame.
+              justifyContent: "center",
             },
             children: rightChildren,
           },
