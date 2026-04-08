@@ -15,8 +15,8 @@ export const PROCESSED_HEADER = "X-ESP-Processed";
 export const PROCESSED_HEADER_VALUE = "v1";
 
 // Display dimensions for the signature image (must match packages/signature-png).
-const SIG_WIDTH = 540;
-const SIG_HEIGHT = 265;
+const SIG_WIDTH = 314;
+const SIG_HEIGHT = 154;
 
 interface RewriteResult {
   raw: Buffer;

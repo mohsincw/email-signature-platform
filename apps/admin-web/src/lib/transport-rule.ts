@@ -22,8 +22,8 @@ const DEDUP_MARKER = "ESP-SIG-V1";
 // Display size for the signature image embedded in every outbound
 // email by the transport rule. Must match png-renderer.ts so the
 // recipient's email client doesn't softly rescale it.
-const SIG_WIDTH = 540;
-const SIG_HEIGHT = 265;
+const SIG_WIDTH = 314;
+const SIG_HEIGHT = 154;
 
 function buildDisclaimerHtml(disclaimer: string): string {
   const base = getPublicBaseUrl();
