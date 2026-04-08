@@ -34,7 +34,7 @@ async function loadTlsOptions(): Promise<TlsOptions | null> {
 export async function createSmtpServer(): Promise<SMTPServer> {
   const tls = await loadTlsOptions();
 
-  return new SMTPServer({
+  const server = new SMTPServer({
     name: config.hostname,
     banner: `${config.hostname} ESMTP Chaiiwala Email Signature Relay`,
     authOptional: true,
@@ -123,4 +123,38 @@ export async function createSmtpServer(): Promise<SMTPServer> {
       });
     },
   });
+
+  // ── Error handler — CRITICAL ────────────────────────────────────
+  //
+  // A public SMTP server on port 25 will be probed constantly by
+  // internet scanners. Some of them attempt STARTTLS with ancient
+  // cipher suites, triggering `ERR_SSL_NO_SHARED_CIPHER` during the
+  // handshake. The underlying Node TLS socket emits an 'error' event
+  // which — if unhandled — crashes the entire process (Docker then
+  // restarts us, another bot probes within 30s, the cycle repeats).
+  //
+  // We absorb all transient TLS and socket errors here and only log
+  // at debug level. Real issues (cert missing, module loading, etc.)
+  // still surface as exceptions elsewhere.
+  server.on("error", (err: any) => {
+    const benign = new Set([
+      "ERR_SSL_NO_SHARED_CIPHER",
+      "ERR_SSL_WRONG_VERSION_NUMBER",
+      "ERR_SSL_UNEXPECTED_EOF_WHILE_READING",
+      "ERR_SSL_TLSV1_ALERT_UNKNOWN_CA",
+      "ECONNRESET",
+      "EPIPE",
+      "ETIMEDOUT",
+    ]);
+    if (err && benign.has(err.code)) {
+      logger.debug(
+        { code: err.code, remote: err.remoteAddress },
+        "ignored transient SMTP handshake error"
+      );
+      return;
+    }
+    logger.warn({ err }, "SMTP server error");
+  });
+
+  return server;
 }

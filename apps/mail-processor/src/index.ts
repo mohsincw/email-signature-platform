@@ -6,6 +6,34 @@ import { logger } from "./logger";
 import { disconnectPrisma } from "./sender-lookup";
 import { verifySmartHost } from "./relay";
 
+// ── Process-level safety net ─────────────────────────────────────────
+// A public SMTP server on port 25 gets hammered by scanners. If ANY
+// error slips past the smtp-server event handler, we log and keep
+// running instead of crashing. This is defence in depth — the real
+// fix is in smtp-server.ts, but belt-and-braces is warranted given
+// how much bot traffic we see.
+process.on("uncaughtException", (err: any) => {
+  const benign = new Set([
+    "ERR_SSL_NO_SHARED_CIPHER",
+    "ERR_SSL_WRONG_VERSION_NUMBER",
+    "ERR_SSL_UNEXPECTED_EOF_WHILE_READING",
+    "ERR_SSL_TLSV1_ALERT_UNKNOWN_CA",
+    "ECONNRESET",
+    "EPIPE",
+  ]);
+  if (err && benign.has(err.code)) {
+    logger.debug(
+      { code: err.code, msg: err.message },
+      "uncaught benign SMTP error (ignored)"
+    );
+    return;
+  }
+  logger.fatal({ err }, "uncaughtException — continuing");
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "unhandledRejection");
+});
+
 async function main() {
   logger.info(
     {
