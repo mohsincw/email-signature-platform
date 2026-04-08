@@ -85,8 +85,10 @@ export async function rewriteMessageWithSignature(
     newHtml = `<div>${escapedText}</div>${signatureHtmlSnippet}`;
   }
 
-  // Augment the plain text body with a text-mode footer.
-  const textFooterLines = ["", "---", sender.name];
+  // Augment the plain text body with a text-mode footer, placed at
+  // the bottom of the new content (above the forward/reply header)
+  // using the same boundary detection as the HTML path.
+  const textFooterLines = ["---", sender.name];
   if (sender.title) textFooterLines.push(sender.title);
   if (sender.phone) textFooterLines.push(sender.phone);
   if (sender.phone2) textFooterLines.push(sender.phone2);
@@ -94,7 +96,10 @@ export async function rewriteMessageWithSignature(
   if (settings.addressLine2) textFooterLines.push(settings.addressLine2);
   if (settings.website) textFooterLines.push(settings.website);
   if (settings.disclaimer) textFooterLines.push("", settings.disclaimer);
-  const newText = (parsed.text ?? "") + "\n" + textFooterLines.join("\n");
+  const newText = insertSignatureIntoText(
+    parsed.text ?? "",
+    textFooterLines.join("\n")
+  );
 
   // Preserve the original recipients + metadata.
   const from = formatAddressList(parsed.from);
@@ -163,15 +168,19 @@ export async function rewriteMessageWithSignature(
  * a well-known boundary marker, otherwise just before </body>, or at
  * the very end if there's no body tag either.
  *
- * Markers checked (in order, first hit wins):
- *   - <div id="appendonsend">    — Outlook Web / new Outlook desktop
- *   - <div id="divRplyFwdMsg">   — classic Outlook reply/forward divider
- *   - <hr id="stopSpelling">     — classic Outlook forward divider
- *   - <div class="OutlookMessageHeader"> — classic Outlook forward header
- *   - <div class="gmail_quote">  — Gmail quoted content wrapper
- *   - <blockquote type="cite">   — generic webmail quote block
- *   - -----Original Message----- — plain-text forward header in HTML
- *   - On <date> wrote:           — generic reply intro
+ * Markers checked (earliest match in the document wins):
+ *   - <div id="appendonsend">          — Outlook Web / new Outlook
+ *   - <div id="divRplyFwdMsg">         — classic Outlook divider
+ *   - <hr id="stopSpelling">           — classic Outlook divider
+ *   - <div class="OutlookMessageHeader"> — classic Outlook header
+ *   - <div style="...border-top:solid ..."> immediately followed by
+ *     a "From:" label — classic Outlook Desktop forward/reply header
+ *     (the thin grey divider line above the From/Sent/To/Subject
+ *     block). This is the marker Outlook Desktop actually produces.
+ *   - <div class="gmail_quote">        — Gmail quoted content
+ *   - <blockquote type="cite">         — generic webmail quote
+ *   - -----Original Message-----       — plain-text forward header
+ *   - On <date> wrote:                 — generic reply intro
  */
 function insertSignatureIntoHtml(html: string, snippet: string): string {
   const markers: RegExp[] = [
@@ -179,24 +188,27 @@ function insertSignatureIntoHtml(html: string, snippet: string): string {
     /<div[^>]*\bid=["']divRplyFwdMsg["'][^>]*>/i,
     /<hr[^>]*\bid=["']stopSpelling["'][^>]*>/i,
     /<div[^>]*\bclass=["'][^"']*\bOutlookMessageHeader\b[^"']*["'][^>]*>/i,
+    // Outlook Desktop forward/reply divider: a <div> with border-top
+    // in its inline style, followed (within ~1000 chars) by a "From:"
+    // label. The lookahead on "From:" reduces false positives against
+    // unrelated content borders.
+    /<div[^>]*\bstyle=["'][^"']*\bborder-top:\s*solid\b[^"']*["'][^>]*>(?=[\s\S]{0,1000}From:)/i,
     /<div[^>]*\bclass=["'][^"']*\bgmail_quote\b[^"']*["'][^>]*>/i,
     /<blockquote[^>]*\btype=["']cite["'][^>]*>/i,
     /-----\s*Original Message\s*-----/i,
     /On\s[^<]{1,120}\swrote:/i,
   ];
 
-  let earliest: { index: number } | null = null;
+  let earliest: number | null = null;
   for (const re of markers) {
     const m = html.match(re);
     if (m && m.index !== undefined) {
-      if (earliest === null || m.index < earliest.index) {
-        earliest = { index: m.index };
-      }
+      if (earliest === null || m.index < earliest) earliest = m.index;
     }
   }
 
   if (earliest !== null) {
-    return html.slice(0, earliest.index) + snippet + html.slice(earliest.index);
+    return html.slice(0, earliest) + snippet + html.slice(earliest);
   }
 
   if (html.includes("</body>")) {
@@ -204,6 +216,35 @@ function insertSignatureIntoHtml(html: string, snippet: string): string {
   }
 
   return html + snippet;
+}
+
+/**
+ * Plain-text equivalent: insert the text footer above the first
+ * forward/reply header line we can find, so it lands at the bottom of
+ * the user's new content instead of at the very bottom of the thread.
+ */
+function insertSignatureIntoText(text: string, footer: string): string {
+  const markers: RegExp[] = [
+    // Outlook Desktop plain-text forward/reply header (From: ... \n Sent: ...)
+    /\n\s*From:\s.+\n\s*Sent:\s/i,
+    // Old-school original message marker
+    /\n-+\s*Original Message\s*-+/i,
+    // Generic reply intro
+    /\nOn\s.{1,120}\swrote:/i,
+  ];
+
+  let earliest: number | null = null;
+  for (const re of markers) {
+    const m = text.match(re);
+    if (m && m.index !== undefined) {
+      if (earliest === null || m.index < earliest) earliest = m.index;
+    }
+  }
+
+  if (earliest !== null) {
+    return text.slice(0, earliest) + "\n" + footer + "\n" + text.slice(earliest);
+  }
+  return text + "\n" + footer;
 }
 
 function formatAddressList(
