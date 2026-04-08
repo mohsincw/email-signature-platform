@@ -131,9 +131,13 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   // reference layout where the left column has real presence; name
   // and phone typography needs to be big enough that the right column
   // fills the frame naturally under justifyContent: space-between
-  // instead of leaving obvious vertical gaps.
-  const LOGO_W = 170;
-  const BADGE_W = 130;
+  // instead of leaving obvious vertical gaps — but NOT so big that
+  // text extends all the way to the right edge, which feels packed.
+  // The reference layouts leave ~30% white space to the right of the
+  // longest text line, which we replicate with paddingRight on the
+  // root combined with moderately-sized typography below.
+  const LOGO_W = 155;
+  const BADGE_W = 122;
 
   // Brand rule: names and job titles are always lowercase regardless
   // of how they're stored. Satori doesn't support CSS text-transform,
@@ -173,7 +177,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     type: "div",
     props: {
       style: {
-        fontSize: 48,
+        fontSize: 40,
         fontWeight: 900,
         color: BLACK,
         lineHeight: 1.05,
@@ -186,7 +190,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 18,
+          fontSize: 15,
           fontWeight: 400,
           color: BLACK,
           letterSpacing: 1.5,
@@ -203,7 +207,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 32,
+          fontSize: 28,
           fontWeight: 900,
           color: BLACK,
           lineHeight: 1.1,
@@ -217,7 +221,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 32,
+          fontSize: 28,
           fontWeight: 900,
           color: BLACK,
           lineHeight: 1.1,
@@ -231,7 +235,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 13,
+          fontSize: 12,
           fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
@@ -248,7 +252,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 13,
+          fontSize: 12,
           fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
@@ -267,7 +271,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 26,
+          fontSize: 22,
           fontWeight: 900,
           color: BLACK,
           display: "flex",
@@ -323,7 +327,16 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
         flexDirection: "row",
         alignItems: "stretch",
         background: "#ffffff",
-        padding: 16,
+        // Asymmetric padding: normal on top/left/bottom, generous on
+        // the right so there's always clear white space to the right
+        // of the longest text line (matches the reference layouts
+        // where the text fills ~65% of the right column, not all of
+        // it). Without this, long names push right up against the
+        // edge and the signature looks packed.
+        paddingTop: 16,
+        paddingBottom: 16,
+        paddingLeft: 16,
+        paddingRight: 70,
         fontFamily: FONT,
       },
       children: [
