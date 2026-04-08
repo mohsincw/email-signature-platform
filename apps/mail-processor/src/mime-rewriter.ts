@@ -1,12 +1,18 @@
 import { simpleParser, type ParsedMail, type AddressObject } from "mailparser";
 import nodemailer from "nodemailer";
+import { randomUUID } from "crypto";
 import type { SenderData } from "./sender-lookup";
 import { renderSignaturePngCached } from "./png-cache";
 import { logger } from "./logger";
 
-// Content-ID for the embedded signature image. The HTML body references
-// this via <img src="cid:esp-signature@chaiiwala.co.uk">.
-const SIGNATURE_CID = "esp-signature@chaiiwala.co.uk";
+// Content-ID for the embedded signature image. We generate a fresh
+// random CID for EVERY outgoing message inside rewriteMessageWithSignature,
+// because Outlook (and some other clients) caches CID-referenced images
+// globally by CID string — so if every message used the same CID,
+// Outlook would keep showing whatever signature it cached first,
+// regardless of which sender actually sent the new email. Per-message
+// random CIDs sidestep this entirely.
+const SIGNATURE_CID_DOMAIN = "chaiiwala.co.uk";
 
 // Unique marker header so Exchange's transport rule exception can skip
 // re-processing messages that have already been through us. Must be a
@@ -53,10 +59,16 @@ export async function rewriteMessageWithSignature(
     badgeUrl: settings.badgeUrl,
   });
 
+  // Fresh CID per message — see comment on SIGNATURE_CID_DOMAIN above.
+  // Without this, Outlook caches the signature image globally and every
+  // subsequent email shows whichever signature was cached first
+  // (classic cross-sender contamination bug).
+  const signatureCid = `esp-signature-${randomUUID()}@${SIGNATURE_CID_DOMAIN}`;
+
   // Build the HTML snippet that references the CID image + disclaimer
   // Matches the exact structure CodeTwo uses: plain <img>, single <br>,
   // <i> tag with <span> for the disclaimer.
-  const cidImg = `<img src="cid:${SIGNATURE_CID}" border="0" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="font-family:Arial;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`;
+  const cidImg = `<img src="cid:${signatureCid}" border="0" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="font-family:Arial;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`;
 
   const disclaimerHtml = settings.disclaimer
     ? `<br/><i style="font-family:Arial;"><span style="font-size:8.0pt;color:#333333;">${settings.disclaimer}</span></i>`
@@ -147,7 +159,7 @@ export async function rewriteMessageWithSignature(
       {
         filename: "signature.png",
         content: signaturePng,
-        cid: SIGNATURE_CID,
+        cid: signatureCid,
         contentType: "image/png",
         contentDisposition: "inline",
       },
