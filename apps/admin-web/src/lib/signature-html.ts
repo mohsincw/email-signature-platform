@@ -28,8 +28,8 @@ export function getPublicBaseUrl(): string {
 // Display size for the embedded signature image — must match what
 // png-renderer.ts emits so the image isn't scaled on the recipient's
 // end (which would soften it).
-export const SIG_WIDTH = 314;
-export const SIG_HEIGHT = 154;
+export const SIG_WIDTH = 540;
+export const SIG_HEIGHT = 265;
 
 export function buildPngSignatureHtml(
   senderId: string,
