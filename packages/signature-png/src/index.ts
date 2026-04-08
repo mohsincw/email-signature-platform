@@ -127,10 +127,13 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   const FONT = "Myriad Pro";
   const BLACK = "#000000";
   // Layout dimensions — sized to fill the 628x308 (2x of 314x154)
-  // Satori canvas. Bigger than the original tiny sizing so the content
-  // doesn't float in empty space.
-  const LOGO_W = 150;
-  const BADGE_W = 118;
+  // Satori canvas. Logo + badge need to be big enough to match the
+  // reference layout where the left column has real presence; name
+  // and phone typography needs to be big enough that the right column
+  // fills the frame naturally under justifyContent: space-between
+  // instead of leaving obvious vertical gaps.
+  const LOGO_W = 170;
+  const BADGE_W = 130;
 
   // Brand rule: names and job titles are always lowercase regardless
   // of how they're stored. Satori doesn't support CSS text-transform,
@@ -170,7 +173,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     type: "div",
     props: {
       style: {
-        fontSize: 36,
+        fontSize: 48,
         fontWeight: 900,
         color: BLACK,
         lineHeight: 1.05,
@@ -183,7 +186,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 14,
+          fontSize: 18,
           fontWeight: 400,
           color: BLACK,
           letterSpacing: 1.5,
@@ -200,7 +203,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 28,
+          fontSize: 32,
           fontWeight: 900,
           color: BLACK,
           lineHeight: 1.1,
@@ -214,7 +217,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 28,
+          fontSize: 32,
           fontWeight: 900,
           color: BLACK,
           lineHeight: 1.1,
@@ -228,13 +231,13 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
           letterSpacing: 1.4,
           lineHeight: 1.5,
-          marginTop: 10,
+          marginTop: 12,
         },
         children: input.addressLine1,
       },
@@ -245,7 +248,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
@@ -264,7 +267,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       type: "div",
       props: {
         style: {
-          fontSize: 18,
+          fontSize: 26,
           fontWeight: 900,
           color: BLACK,
           display: "flex",
