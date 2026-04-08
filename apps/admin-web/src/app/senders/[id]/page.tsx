@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Send, CheckCircle, AlertCircle, Cloud } from "lucide-react";
+import { Send, CheckCircle, AlertCircle } from "lucide-react";
 import type { SenderDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
 
@@ -10,16 +10,19 @@ export default function EditSenderPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [sender, setSender] = useState<SenderDto | null>(null);
-  const [form, setForm] = useState({ email: "", name: "", title: "", phone: "", phone2: "" });
+  const [form, setForm] = useState({
+    email: "",
+    name: "",
+    title: "",
+    phone: "",
+    phone2: "",
+    enabled: true,
+  });
   const [saving, setSaving] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [outlookConfigured, setOutlookConfigured] = useState(false);
-  const [deploying, setDeploying] = useState(false);
-  const [deployResult, setDeployResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [lastDeployed, setLastDeployed] = useState<string | null>(null);
 
   useEffect(() => {
     api.senders.get(id).then((s) => {
@@ -30,13 +33,9 @@ export default function EditSenderPage() {
         title: s.title ?? "",
         phone: s.phone ?? "",
         phone2: s.phone2 ?? "",
+        enabled: s.enabled,
       });
     });
-    api.outlook.getStatus().then((s) => setOutlookConfigured(s.configured)).catch(() => {});
-    api.outlook.getHistory(id).then((logs) => {
-      const last = logs.find((l) => l.status === "success");
-      if (last) setLastDeployed(last.deployedAt);
-    }).catch(() => {});
   }, [id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,6 +48,7 @@ export default function EditSenderPage() {
         title: form.title || undefined,
         phone: form.phone || undefined,
         phone2: form.phone2 || undefined,
+        enabled: form.enabled,
       });
       router.push("/senders");
     } catch {
@@ -120,6 +120,32 @@ export default function EditSenderPage() {
               value={form.phone2}
               onChange={(e) => setForm({ ...form, phone2: e.target.value })}
             />
+          </div>
+          <div className="form-group">
+            <label>Status</label>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                fontSize: 13,
+                color: "var(--grey-700)",
+                cursor: "pointer",
+                fontWeight: 400,
+                textTransform: "none",
+                letterSpacing: 0,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(e) =>
+                  setForm({ ...form, enabled: e.target.checked })
+                }
+              />
+              Active — apply this person&apos;s signature to their outbound
+              email. Uncheck to pause without deleting.
+            </label>
           </div>
           <div className="actions">
             <button type="submit" className="btn btn-primary" disabled={saving}>
@@ -220,72 +246,8 @@ export default function EditSenderPage() {
         )}
       </div>
 
-      {outlookConfigured && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h3 style={{ marginBottom: 12 }}>Deploy to Outlook</h3>
-          <p style={{ fontSize: 13, color: "#64748B", marginBottom: 12 }}>
-            Push this sender&apos;s signature directly to their M365/Outlook mailbox.
-            {lastDeployed && (
-              <span style={{ display: "block", marginTop: 4 }}>
-                Last deployed: {new Date(lastDeployed).toLocaleString()}
-              </span>
-            )}
-          </p>
-          <button
-            className="btn btn-primary"
-            onClick={async () => {
-              setDeploying(true);
-              setDeployResult(null);
-              try {
-                const results = await api.outlook.deploy([id]);
-                const r = results[0];
-                setDeployResult({
-                  success: r.success,
-                  message: r.success
-                    ? `Signature deployed to ${r.senderEmail}`
-                    : r.error || "Deployment failed",
-                });
-                if (r.success) setLastDeployed(r.deployedAt);
-              } catch (err: any) {
-                setDeployResult({ success: false, message: err.message });
-              } finally {
-                setDeploying(false);
-              }
-            }}
-            disabled={deploying}
-            style={{ width: "100%" }}
-          >
-            <Cloud size={16} strokeWidth={2} />
-            {deploying ? "Deploying..." : "Deploy to Outlook"}
-          </button>
-          {deployResult && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: "10px 14px",
-                borderRadius: 8,
-                fontSize: 13,
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 8,
-                background: deployResult.success ? "#F0FDF4" : "#FEF2F2",
-                color: deployResult.success ? "#16A34A" : "#DC2626",
-                border: `1px solid ${deployResult.success ? "#BBF7D0" : "#FECACA"}`,
-              }}
-            >
-              {deployResult.success ? (
-                <CheckCircle size={16} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-              ) : (
-                <AlertCircle size={16} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-              )}
-              <span>{deployResult.message}</span>
-            </div>
-          )}
-        </div>
-      )}
-
       <div style={{ marginTop: 16 }}>
-        <a href={`/preview?senderId=${id}`} className="btn btn-secondary">
+        <a href={`/generate?senderId=${id}`} className="btn btn-secondary">
           Preview Signature
         </a>
       </div>
