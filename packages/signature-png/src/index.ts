@@ -160,89 +160,92 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     });
   }
 
-  const rightChildren: any[] = [];
-  rightChildren.push({
+  // Right column content is split into three vertical groups so the
+  // column's justifyContent: space-between distributes them across the
+  // full height: name/title pinned to the top, contact block in the
+  // middle, website pinned to the bottom. This stops the content from
+  // sitting as a short island in the middle of a much taller frame.
+  const nameGroup: any[] = [];
+  nameGroup.push({
     type: "div",
     props: {
       style: {
-        fontSize: 30,
+        fontSize: 36,
         fontWeight: 900,
         color: BLACK,
-        lineHeight: 1.1,
-        marginBottom: 2,
+        lineHeight: 1.05,
       },
       children: displayName,
     },
   });
   if (displayTitle) {
-    rightChildren.push({
+    nameGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: 400,
           color: BLACK,
           letterSpacing: 1.5,
-          marginBottom: 12,
+          marginTop: 4,
         },
         children: displayTitle,
       },
     });
   }
+
+  const contactGroup: any[] = [];
   if (input.senderPhone) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 24,
+          fontSize: 28,
           fontWeight: 900,
           color: BLACK,
-          lineHeight: 1.15,
+          lineHeight: 1.1,
         },
         children: input.senderPhone,
       },
     });
   }
   if (input.senderPhone2) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 24,
+          fontSize: 28,
           fontWeight: 900,
           color: BLACK,
-          lineHeight: 1.15,
+          lineHeight: 1.1,
         },
         children: input.senderPhone2,
       },
     });
   }
-  rightChildren.push({
-    type: "div",
-    props: { style: { height: 10 } },
-  });
   if (input.addressLine1) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 10,
+          fontSize: 12,
           fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
           letterSpacing: 1.4,
           lineHeight: 1.5,
+          marginTop: 10,
         },
         children: input.addressLine1,
       },
     });
   }
   if (input.addressLine2) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 10,
+          fontSize: 12,
           fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
@@ -253,22 +256,52 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       },
     });
   }
+
+  const websiteGroup: any[] = [];
   if (input.website) {
-    rightChildren.push({
-      type: "div",
-      props: { style: { height: 8 } },
-    });
     const display = input.website.replace(/^https?:\/\//, "");
-    rightChildren.push({
+    websiteGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 15,
+          fontSize: 18,
           fontWeight: 900,
           color: BLACK,
           display: "flex",
         },
         children: display,
+      },
+    });
+  }
+
+  // Build the right column children — one <div> per group, so
+  // justifyContent: space-between on the column operates on groups
+  // rather than on every individual text line (which would create
+  // awkward gaps between name and title, etc.).
+  const rightChildren: any[] = [
+    {
+      type: "div",
+      props: {
+        style: { display: "flex", flexDirection: "column" },
+        children: nameGroup,
+      },
+    },
+  ];
+  if (contactGroup.length > 0) {
+    rightChildren.push({
+      type: "div",
+      props: {
+        style: { display: "flex", flexDirection: "column" },
+        children: contactGroup,
+      },
+    });
+  }
+  if (websiteGroup.length > 0) {
+    rightChildren.push({
+      type: "div",
+      props: {
+        style: { display: "flex", flexDirection: "column" },
+        children: websiteGroup,
       },
     });
   }
@@ -316,7 +349,11 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
               display: "flex",
               flexDirection: "column",
               paddingLeft: 18,
-              justifyContent: "center",
+              // space-between pins the name/title group to the top,
+              // the contact group to the middle, and the website group
+              // to the bottom, so the content fills the frame height
+              // instead of sitting centred in a sea of white.
+              justifyContent: "space-between",
             },
             children: rightChildren,
           },
