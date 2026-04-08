@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
   Check,
@@ -18,7 +18,19 @@ import { api } from "@/lib/api";
 
 type ViewMode = "live" | "html" | "thread";
 
+// Next.js 15 requires useSearchParams() to live inside a Suspense
+// boundary so the rest of the page can still be statically generated
+// while the query string is resolved at request time. We keep the
+// actual editor inside EditorPageInner and export a small wrapper.
 export default function EditorPage() {
+  return (
+    <Suspense fallback={<p className="muted">Loading…</p>}>
+      <EditorPageInner />
+    </Suspense>
+  );
+}
+
+function EditorPageInner() {
   const searchParams = useSearchParams();
   const querySenderId = searchParams.get("senderId") ?? "";
   const [senders, setSenders] = useState<SenderDto[]>([]);
