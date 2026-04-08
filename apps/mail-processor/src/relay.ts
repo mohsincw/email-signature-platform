@@ -11,6 +11,14 @@ import { logger } from "./logger";
  * Exchange will then apply DKIM and deliver normally. The transport
  * rule exception on the X-ESP-Processed header prevents Exchange from
  * routing this message back to us in a loop.
+ *
+ * The raw buffer passed in MUST already be a cleanly-rebuilt MIME
+ * (via rewriteMessageWithSignature or rebuildMessageForRelay) with
+ * the X-ESP-Processed header embedded in its header block. Earlier
+ * attempts to prepend the header to the raw SMTP bytes here did not
+ * work — Exchange still saw the previous hop's Received: chain and
+ * bounced with "hop count exceeded". Rebuilding upstream drops the
+ * accumulated routing headers, which is what actually breaks the loop.
  */
 const transport = nodemailer.createTransport({
   host: config.smartHostHost,

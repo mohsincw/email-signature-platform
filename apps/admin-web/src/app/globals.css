@@ -552,11 +552,28 @@ tr:hover td {
   background: var(--chaii-brown-50);
 }
 
+/* Stacking fix for the row kebab menu. The .kebab-menu is absolutely
+   positioned inside a <td>, but tables create implicit stacking
+   contexts per row in DOM order — so any row below the open menu's
+   row paints on top of the dropdown and clips it. Lifting the
+   containing <tr> with position + z-index via :has() fixes this
+   without affecting any other row. */
+tbody tr {
+  position: relative;
+}
+
+tbody tr:has(.kebab-menu) {
+  z-index: 20;
+}
+
 .table-card {
   background: var(--white);
   border: 1px solid var(--karak-beige-200);
   border-radius: var(--radius);
-  overflow: hidden;
+  /* overflow must stay visible so absolutely-positioned dropdowns
+     (e.g. the row kebab menu) can escape the card bounds instead of
+     getting clipped when opened on a crowded row. */
+  overflow: visible;
   box-shadow: var(--shadow-sm);
 }
 

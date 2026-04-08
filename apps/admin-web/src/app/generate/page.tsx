@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
   Check,
@@ -12,12 +12,27 @@ import {
   Plus,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { GlobalSettingsDto, SenderDto } from "@esp/shared-types";
 import { api } from "@/lib/api";
 
 type ViewMode = "live" | "html" | "thread";
 
+// Next.js 15 requires useSearchParams() to live inside a Suspense
+// boundary so the rest of the page can still be statically generated
+// while the query string is resolved at request time. We keep the
+// actual editor inside EditorPageInner and export a small wrapper.
 export default function EditorPage() {
+  return (
+    <Suspense fallback={<p className="muted">Loading…</p>}>
+      <EditorPageInner />
+    </Suspense>
+  );
+}
+
+function EditorPageInner() {
+  const searchParams = useSearchParams();
+  const querySenderId = searchParams.get("senderId") ?? "";
   const [senders, setSenders] = useState<SenderDto[]>([]);
   const [settings, setSettings] = useState<GlobalSettingsDto | null>(null);
   const [selectedId, setSelectedId] = useState("");
@@ -43,13 +58,30 @@ export default function EditorPage() {
   };
 
   useEffect(() => {
-    api.senders.list().then(setSenders).catch(() => {});
+    api.senders
+      .list()
+      .then((list) => {
+        setSenders(list);
+        // If we arrived here via a ?senderId=... link (e.g. the
+        // "Preview Signature" button on the edit page), preselect that
+        // sender so the preview populates immediately.
+        if (querySenderId) {
+          const hit = list.find((x) => x.id === querySenderId);
+          if (hit) {
+            setSelectedId(hit.id);
+            setName(hit.name);
+            setTitle(hit.title ?? "");
+            setPhone(hit.phone ?? "");
+          }
+        }
+      })
+      .catch(() => {});
     api.settings
       .get()
       .then(setSettings)
       .catch(() => setSettings(fallbackSettings));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [querySenderId]);
 
   // Re-render HTML server-side whenever inputs change AND we're in HTML/thread view
   useEffect(() => {

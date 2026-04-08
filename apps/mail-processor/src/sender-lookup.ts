@@ -23,12 +23,20 @@ export interface SenderData {
 }
 
 /**
- * In-memory cache so a single burst of emails from the same sender
- * doesn't hammer the DB. TTL is short because admins editing details
- * on the admin-web UI should see changes reflected within a minute.
+ * In-memory cache so a burst of emails from the same sender doesn't
+ * hammer the DB. TTL is short because admins editing details on the
+ * admin-web UI should see changes reflected within a minute.
+ *
+ * We only cache POSITIVE hits. Caching null would mean that disabling
+ * a sender and re-enabling them within the TTL leaves the droplet
+ * serving the stale null, so re-enabled senders' emails go out with
+ * no signature until the entry expires. Negative lookups are cheap
+ * (single indexed unique query on `email`) so skipping the cache for
+ * them is fine — and it also stops random SMTP probes from filling
+ * the cache with junk entries.
  */
 interface CacheEntry {
-  data: SenderData | null;
+  data: SenderData;
   expiresAt: number;
 }
 const cache = new Map<string, CacheEntry>();
@@ -50,7 +58,10 @@ export async function lookupSender(
       where: { email },
     });
     if (!sender || !sender.enabled) {
-      cache.set(email, { data: null, expiresAt: now + CACHE_TTL_MS });
+      // Drop any stale positive entry for this email so a subsequent
+      // re-enable (which skips the cache on the negative path) picks
+      // up fresh data on the next email.
+      cache.delete(email);
       return null;
     }
 

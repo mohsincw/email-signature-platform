@@ -10,32 +10,53 @@ const RENDER_SCALE = 2;
 const CANVAS_W = SIG_DISPLAY_WIDTH * RENDER_SCALE;
 const CANVAS_H = SIG_DISPLAY_HEIGHT * RENDER_SCALE;
 
-let cachedFont: ArrayBuffer | null = null;
+let cachedBlackFont: ArrayBuffer | null = null;
+let cachedRegularFont: ArrayBuffer | null = null;
+
+async function readFontFile(fontPath: string): Promise<ArrayBuffer> {
+  const buf = await fs.readFile(fontPath);
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
 
 /**
- * Load the Myriad Pro font from a path on disk. Callers from different
- * environments (Next.js on Vercel, plain Node in Docker) pass their own
- * path since __dirname resolution differs between bundled and unbundled
- * code. Result is cached for the lifetime of the process.
+ * Load both Myriad Pro weights the renderer uses. Black is the heavy
+ * weight used for the name, phone and website. Regular is used for the
+ * job title and the address lines so they don't compete visually with
+ * the name. Callers from different environments (Next.js on Vercel,
+ * plain Node in Docker) pass their own paths since __dirname resolution
+ * differs between bundled and unbundled code. Results are cached for
+ * the lifetime of the process.
+ */
+export async function loadFonts(paths: {
+  black: string;
+  regular: string;
+}): Promise<void> {
+  if (!cachedBlackFont) cachedBlackFont = await readFontFile(paths.black);
+  if (!cachedRegularFont) cachedRegularFont = await readFontFile(paths.regular);
+}
+
+/**
+ * Back-compat shim for callers that only pass the black font path. The
+ * regular font is assumed to live next to it with the name
+ * `myriad-pro-regular.otf`.
  */
 export async function loadFontFromPath(
-  fontPath: string
-): Promise<ArrayBuffer> {
-  if (cachedFont) return cachedFont;
-  const buf = await fs.readFile(fontPath);
-  cachedFont = buf.buffer.slice(
-    buf.byteOffset,
-    buf.byteOffset + buf.byteLength
+  blackFontPath: string
+): Promise<void> {
+  const regularPath = blackFontPath.replace(
+    /myriad-pro-black\.otf$/i,
+    "myriad-pro-regular.otf"
   );
-  return cachedFont;
+  await loadFonts({ black: blackFontPath, regular: regularPath });
 }
 
 /**
  * Supply pre-loaded font data directly. Used by the admin-web serverless
  * function when the font is bundled into the output.
  */
-export function setFontData(data: ArrayBuffer): void {
-  cachedFont = data;
+export function setFontData(data: { black: ArrayBuffer; regular: ArrayBuffer }): void {
+  cachedBlackFont = data.black;
+  cachedRegularFont = data.regular;
 }
 
 /**
@@ -92,9 +113,9 @@ export interface PngInput {
  * loadFontFromPath() or setFontData(), otherwise you get an error.
  */
 export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
-  if (!cachedFont) {
+  if (!cachedBlackFont || !cachedRegularFont) {
     throw new Error(
-      "[signature-png] font not loaded — call loadFontFromPath() or setFontData() before renderSignaturePng()"
+      "[signature-png] fonts not loaded — call loadFonts() or loadFontFromPath() before renderSignaturePng()"
     );
   }
 
@@ -106,10 +127,17 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
   const FONT = "Myriad Pro";
   const BLACK = "#000000";
   // Layout dimensions — sized to fill the 628x308 (2x of 314x154)
-  // Satori canvas. Bigger than the original tiny sizing so the content
-  // doesn't float in empty space.
-  const LOGO_W = 150;
-  const BADGE_W = 118;
+  // Satori canvas. Logo + badge need to be big enough to match the
+  // reference layout where the left column has real presence; name
+  // and phone typography needs to be big enough that the right column
+  // fills the frame naturally under justifyContent: space-between
+  // instead of leaving obvious vertical gaps — but NOT so big that
+  // text extends all the way to the right edge, which feels packed.
+  // The reference layouts leave ~30% white space to the right of the
+  // longest text line, which we replicate with paddingRight on the
+  // root combined with moderately-sized typography below.
+  const LOGO_W = 155;
+  const BADGE_W = 122;
 
   // Brand rule: names and job titles are always lowercase regardless
   // of how they're stored. Satori doesn't support CSS text-transform,
@@ -139,90 +167,93 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     });
   }
 
-  const rightChildren: any[] = [];
-  rightChildren.push({
+  // Right column content is split into three vertical groups so the
+  // column's justifyContent: space-between distributes them across the
+  // full height: name/title pinned to the top, contact block in the
+  // middle, website pinned to the bottom. This stops the content from
+  // sitting as a short island in the middle of a much taller frame.
+  const nameGroup: any[] = [];
+  nameGroup.push({
     type: "div",
     props: {
       style: {
-        fontSize: 30,
+        fontSize: 40,
         fontWeight: 900,
         color: BLACK,
-        lineHeight: 1.1,
-        marginBottom: 2,
+        lineHeight: 1.05,
       },
       children: displayName,
     },
   });
   if (displayTitle) {
-    rightChildren.push({
+    nameGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 12,
-          fontWeight: 900,
+          fontSize: 15,
+          fontWeight: 400,
           color: BLACK,
           letterSpacing: 1.5,
-          marginBottom: 12,
+          marginTop: 4,
         },
         children: displayTitle,
       },
     });
   }
+
+  const contactGroup: any[] = [];
   if (input.senderPhone) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 24,
+          fontSize: 28,
           fontWeight: 900,
           color: BLACK,
-          lineHeight: 1.15,
+          lineHeight: 1.1,
         },
         children: input.senderPhone,
       },
     });
   }
   if (input.senderPhone2) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 24,
+          fontSize: 28,
           fontWeight: 900,
           color: BLACK,
-          lineHeight: 1.15,
+          lineHeight: 1.1,
         },
         children: input.senderPhone2,
       },
     });
   }
-  rightChildren.push({
-    type: "div",
-    props: { style: { height: 10 } },
-  });
   if (input.addressLine1) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 10,
-          fontWeight: 900,
+          fontSize: 12,
+          fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
           letterSpacing: 1.4,
           lineHeight: 1.5,
+          marginTop: 12,
         },
         children: input.addressLine1,
       },
     });
   }
   if (input.addressLine2) {
-    rightChildren.push({
+    contactGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 10,
-          fontWeight: 900,
+          fontSize: 12,
+          fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
           letterSpacing: 1.4,
@@ -232,17 +263,15 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       },
     });
   }
+
+  const websiteGroup: any[] = [];
   if (input.website) {
-    rightChildren.push({
-      type: "div",
-      props: { style: { height: 8 } },
-    });
     const display = input.website.replace(/^https?:\/\//, "");
-    rightChildren.push({
+    websiteGroup.push({
       type: "div",
       props: {
         style: {
-          fontSize: 15,
+          fontSize: 22,
           fontWeight: 900,
           color: BLACK,
           display: "flex",
@@ -252,15 +281,72 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     });
   }
 
+  // Build the right column children — one <div> per group. The
+  // right column uses justifyContent: center so the whole cluster
+  // sits in the middle of the frame; the groups get a small explicit
+  // margin between them for rhythm without the huge gaps space-
+  // between produced.
+  const GROUP_GAP = 14;
+  const rightChildren: any[] = [
+    {
+      type: "div",
+      props: {
+        style: { display: "flex", flexDirection: "column" },
+        children: nameGroup,
+      },
+    },
+  ];
+  if (contactGroup.length > 0) {
+    rightChildren.push({
+      type: "div",
+      props: {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          marginTop: GROUP_GAP,
+        },
+        children: contactGroup,
+      },
+    });
+  }
+  if (websiteGroup.length > 0) {
+    rightChildren.push({
+      type: "div",
+      props: {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          marginTop: GROUP_GAP,
+        },
+        children: websiteGroup,
+      },
+    });
+  }
+
   const tree = {
     type: "div",
     props: {
       style: {
+        // Explicit width + height so the root fills the whole Satori
+        // viewport. Without this the root sizes to its children and
+        // the remaining canvas renders as a transparent area (which
+        // shows as black in the recipient's dark-mode email client).
+        width: "100%",
+        height: "100%",
         display: "flex",
         flexDirection: "row",
         alignItems: "stretch",
         background: "#ffffff",
-        padding: 16,
+        // Asymmetric padding: normal on top/left/bottom, generous on
+        // the right so there's always clear white space to the right
+        // of the longest text line (matches the reference layouts
+        // where the text fills ~65% of the right column, not all of
+        // it). Without this, long names push right up against the
+        // edge and the signature looks packed.
+        paddingTop: 16,
+        paddingBottom: 16,
+        paddingLeft: 16,
+        paddingRight: 70,
         fontFamily: FONT,
       },
       children: [
@@ -273,7 +359,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
               justifyContent: "center",
               alignItems: "center",
               paddingRight: 18,
-              borderRight: "3px solid #000000",
+              borderRight: "1px solid #000000",
               minWidth: 170,
             },
             children: leftChildren,
@@ -283,9 +369,18 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
           type: "div",
           props: {
             style: {
+              // flex: 1 so the text column grows into the remaining
+              // horizontal space rather than shrinking to its content.
+              flex: 1,
               display: "flex",
               flexDirection: "column",
               paddingLeft: 18,
+              // Centre the grouped content vertically. space-between
+              // pushed the groups to the top/bottom extremes which
+              // left visible empty bands between them; centred
+              // keeps each group with its natural internal spacing
+              // and lets the cluster sit compactly in the middle of
+              // the frame.
               justifyContent: "center",
             },
             children: rightChildren,
@@ -301,13 +396,13 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     fonts: [
       {
         name: FONT,
-        data: cachedFont,
+        data: cachedBlackFont,
         weight: 900,
         style: "normal",
       },
       {
         name: FONT,
-        data: cachedFont,
+        data: cachedRegularFont,
         weight: 400,
         style: "normal",
       },

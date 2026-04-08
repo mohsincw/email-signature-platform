@@ -64,15 +64,15 @@ export async function rewriteMessageWithSignature(
 
   const signatureHtmlSnippet = `<br/>${cidImg}${disclaimerHtml}`;
 
-  // Augment the HTML body. If the original message was HTML, insert
-  // just before </body>; else wrap the text/html we synthesise.
+  // Augment the HTML body. For forwards and replies the signature must
+  // sit at the bottom of the sender's NEW content, not at the bottom of
+  // the entire thread (which would be below the quoted original). We
+  // look for Outlook's forward/reply boundary markers and insert the
+  // signature immediately before them. This matches what CodeTwo and
+  // Outlook's own signature placement do.
   let newHtml: string;
   if (parsed.html && typeof parsed.html === "string") {
-    if (parsed.html.includes("</body>")) {
-      newHtml = parsed.html.replace("</body>", `${signatureHtmlSnippet}</body>`);
-    } else {
-      newHtml = parsed.html + signatureHtmlSnippet;
-    }
+    newHtml = insertSignatureIntoHtml(parsed.html, signatureHtmlSnippet);
   } else {
     // Plain-text-only messages — synthesise an HTML part with the
     // original text, then the signature. Nodemailer sends both the
@@ -85,8 +85,10 @@ export async function rewriteMessageWithSignature(
     newHtml = `<div>${escapedText}</div>${signatureHtmlSnippet}`;
   }
 
-  // Augment the plain text body with a text-mode footer.
-  const textFooterLines = ["", "---", sender.name];
+  // Augment the plain text body with a text-mode footer, placed at
+  // the bottom of the new content (above the forward/reply header)
+  // using the same boundary detection as the HTML path.
+  const textFooterLines = ["---", sender.name];
   if (sender.title) textFooterLines.push(sender.title);
   if (sender.phone) textFooterLines.push(sender.phone);
   if (sender.phone2) textFooterLines.push(sender.phone2);
@@ -94,7 +96,10 @@ export async function rewriteMessageWithSignature(
   if (settings.addressLine2) textFooterLines.push(settings.addressLine2);
   if (settings.website) textFooterLines.push(settings.website);
   if (settings.disclaimer) textFooterLines.push("", settings.disclaimer);
-  const newText = (parsed.text ?? "") + "\n" + textFooterLines.join("\n");
+  const newText = insertSignatureIntoText(
+    parsed.text ?? "",
+    textFooterLines.join("\n")
+  );
 
   // Preserve the original recipients + metadata.
   const from = formatAddressList(parsed.from);
@@ -155,6 +160,160 @@ export async function rewriteMessageWithSignature(
   );
 
   return { raw: info.message as Buffer };
+}
+
+/**
+ * Pass-through rebuild for unknown / disabled senders. We parse the
+ * incoming MIME, then rebuild it cleanly via nodemailer (same path
+ * the signed messages use), which:
+ *
+ *   1. Drops all of Exchange's accumulated routing / ARC / X-MS-*
+ *      headers from the previous hop — critical because otherwise
+ *      Exchange treats the return trip as a loop and bounces with
+ *      `554 5.4.14 Hop count exceeded`.
+ *   2. Embeds the X-ESP-Processed loop-prevention header inside the
+ *      proper MIME header block via nodemailer's `headers` option,
+ *      which is the form Exchange's transport rule exception
+ *      reliably matches. (Prepending it to the raw buffer before
+ *      handing to nodemailer's `raw:` mode did NOT work in practice
+ *      — Exchange still counted the pre-existing Received: hops.)
+ *
+ * No signature is injected. The body passes through untouched.
+ */
+export async function rebuildMessageForRelay(
+  rawMessage: Buffer
+): Promise<Buffer> {
+  const parsed: ParsedMail = await simpleParser(rawMessage);
+
+  const from = formatAddressList(parsed.from);
+  const to = formatAddressList(parsed.to);
+  const cc = formatAddressList(parsed.cc);
+  const bcc = formatAddressList(parsed.bcc);
+  const replyTo = formatAddressList(parsed.replyTo);
+
+  const originalAttachments = (parsed.attachments || []).map((att) => ({
+    filename: att.filename,
+    content: att.content,
+    contentType: att.contentType,
+    cid: att.cid,
+    contentDisposition: (att.contentDisposition as any) || "attachment",
+  }));
+
+  const streamTransport = nodemailer.createTransport({
+    streamTransport: true,
+    buffer: true,
+  });
+
+  const info = await streamTransport.sendMail({
+    from,
+    to,
+    cc,
+    bcc,
+    replyTo,
+    subject: parsed.subject,
+    text: parsed.text ?? undefined,
+    html: typeof parsed.html === "string" ? parsed.html : undefined,
+    date: parsed.date ?? new Date(),
+    messageId: parsed.messageId,
+    references: parsed.references as any,
+    inReplyTo: parsed.inReplyTo,
+    headers: {
+      [PROCESSED_HEADER]: PROCESSED_HEADER_VALUE,
+    },
+    attachments: originalAttachments,
+  });
+
+  logger.debug(
+    { from, messageId: parsed.messageId },
+    "Rebuilt MIME for pass-through relay (no signature)"
+  );
+
+  return info.message as Buffer;
+}
+
+/**
+ * Insert the signature snippet into an HTML body at the right spot:
+ * immediately above the forward/reply quoted content if we can find
+ * a well-known boundary marker, otherwise just before </body>, or at
+ * the very end if there's no body tag either.
+ *
+ * Markers checked (earliest match in the document wins):
+ *   - <div id="appendonsend">          — Outlook Web / new Outlook
+ *   - <div id="divRplyFwdMsg">         — classic Outlook divider
+ *   - <hr id="stopSpelling">           — classic Outlook divider
+ *   - <div class="OutlookMessageHeader"> — classic Outlook header
+ *   - <div style="...border-top:solid ..."> immediately followed by
+ *     a "From:" label — classic Outlook Desktop forward/reply header
+ *     (the thin grey divider line above the From/Sent/To/Subject
+ *     block). This is the marker Outlook Desktop actually produces.
+ *   - <div class="gmail_quote">        — Gmail quoted content
+ *   - <blockquote type="cite">         — generic webmail quote
+ *   - -----Original Message-----       — plain-text forward header
+ *   - On <date> wrote:                 — generic reply intro
+ */
+function insertSignatureIntoHtml(html: string, snippet: string): string {
+  const markers: RegExp[] = [
+    /<div[^>]*\bid=["']appendonsend["'][^>]*>/i,
+    /<div[^>]*\bid=["']divRplyFwdMsg["'][^>]*>/i,
+    /<hr[^>]*\bid=["']stopSpelling["'][^>]*>/i,
+    /<div[^>]*\bclass=["'][^"']*\bOutlookMessageHeader\b[^"']*["'][^>]*>/i,
+    // Outlook Desktop forward/reply divider: a <div> with border-top
+    // in its inline style, followed (within ~1000 chars) by a "From:"
+    // label. The lookahead on "From:" reduces false positives against
+    // unrelated content borders.
+    /<div[^>]*\bstyle=["'][^"']*\bborder-top:\s*solid\b[^"']*["'][^>]*>(?=[\s\S]{0,1000}From:)/i,
+    /<div[^>]*\bclass=["'][^"']*\bgmail_quote\b[^"']*["'][^>]*>/i,
+    /<blockquote[^>]*\btype=["']cite["'][^>]*>/i,
+    /-----\s*Original Message\s*-----/i,
+    /On\s[^<]{1,120}\swrote:/i,
+  ];
+
+  let earliest: number | null = null;
+  for (const re of markers) {
+    const m = html.match(re);
+    if (m && m.index !== undefined) {
+      if (earliest === null || m.index < earliest) earliest = m.index;
+    }
+  }
+
+  if (earliest !== null) {
+    return html.slice(0, earliest) + snippet + html.slice(earliest);
+  }
+
+  if (html.includes("</body>")) {
+    return html.replace("</body>", `${snippet}</body>`);
+  }
+
+  return html + snippet;
+}
+
+/**
+ * Plain-text equivalent: insert the text footer above the first
+ * forward/reply header line we can find, so it lands at the bottom of
+ * the user's new content instead of at the very bottom of the thread.
+ */
+function insertSignatureIntoText(text: string, footer: string): string {
+  const markers: RegExp[] = [
+    // Outlook Desktop plain-text forward/reply header (From: ... \n Sent: ...)
+    /\n\s*From:\s.+\n\s*Sent:\s/i,
+    // Old-school original message marker
+    /\n-+\s*Original Message\s*-+/i,
+    // Generic reply intro
+    /\nOn\s.{1,120}\swrote:/i,
+  ];
+
+  let earliest: number | null = null;
+  for (const re of markers) {
+    const m = text.match(re);
+    if (m && m.index !== undefined) {
+      if (earliest === null || m.index < earliest) earliest = m.index;
+    }
+  }
+
+  if (earliest !== null) {
+    return text.slice(0, earliest) + "\n" + footer + "\n" + text.slice(earliest);
+  }
+  return text + "\n" + footer;
 }
 
 function formatAddressList(
