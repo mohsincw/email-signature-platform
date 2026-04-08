@@ -10,32 +10,53 @@ const RENDER_SCALE = 2;
 const CANVAS_W = SIG_DISPLAY_WIDTH * RENDER_SCALE;
 const CANVAS_H = SIG_DISPLAY_HEIGHT * RENDER_SCALE;
 
-let cachedFont: ArrayBuffer | null = null;
+let cachedBlackFont: ArrayBuffer | null = null;
+let cachedRegularFont: ArrayBuffer | null = null;
+
+async function readFontFile(fontPath: string): Promise<ArrayBuffer> {
+  const buf = await fs.readFile(fontPath);
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
 
 /**
- * Load the Myriad Pro font from a path on disk. Callers from different
- * environments (Next.js on Vercel, plain Node in Docker) pass their own
- * path since __dirname resolution differs between bundled and unbundled
- * code. Result is cached for the lifetime of the process.
+ * Load both Myriad Pro weights the renderer uses. Black is the heavy
+ * weight used for the name, phone and website. Regular is used for the
+ * job title and the address lines so they don't compete visually with
+ * the name. Callers from different environments (Next.js on Vercel,
+ * plain Node in Docker) pass their own paths since __dirname resolution
+ * differs between bundled and unbundled code. Results are cached for
+ * the lifetime of the process.
+ */
+export async function loadFonts(paths: {
+  black: string;
+  regular: string;
+}): Promise<void> {
+  if (!cachedBlackFont) cachedBlackFont = await readFontFile(paths.black);
+  if (!cachedRegularFont) cachedRegularFont = await readFontFile(paths.regular);
+}
+
+/**
+ * Back-compat shim for callers that only pass the black font path. The
+ * regular font is assumed to live next to it with the name
+ * `myriad-pro-regular.otf`.
  */
 export async function loadFontFromPath(
-  fontPath: string
-): Promise<ArrayBuffer> {
-  if (cachedFont) return cachedFont;
-  const buf = await fs.readFile(fontPath);
-  cachedFont = buf.buffer.slice(
-    buf.byteOffset,
-    buf.byteOffset + buf.byteLength
+  blackFontPath: string
+): Promise<void> {
+  const regularPath = blackFontPath.replace(
+    /myriad-pro-black\.otf$/i,
+    "myriad-pro-regular.otf"
   );
-  return cachedFont;
+  await loadFonts({ black: blackFontPath, regular: regularPath });
 }
 
 /**
  * Supply pre-loaded font data directly. Used by the admin-web serverless
  * function when the font is bundled into the output.
  */
-export function setFontData(data: ArrayBuffer): void {
-  cachedFont = data;
+export function setFontData(data: { black: ArrayBuffer; regular: ArrayBuffer }): void {
+  cachedBlackFont = data.black;
+  cachedRegularFont = data.regular;
 }
 
 /**
@@ -92,9 +113,9 @@ export interface PngInput {
  * loadFontFromPath() or setFontData(), otherwise you get an error.
  */
 export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
-  if (!cachedFont) {
+  if (!cachedBlackFont || !cachedRegularFont) {
     throw new Error(
-      "[signature-png] font not loaded — call loadFontFromPath() or setFontData() before renderSignaturePng()"
+      "[signature-png] fonts not loaded — call loadFonts() or loadFontFromPath() before renderSignaturePng()"
     );
   }
 
@@ -159,7 +180,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       props: {
         style: {
           fontSize: 12,
-          fontWeight: 900,
+          fontWeight: 400,
           color: BLACK,
           letterSpacing: 1.5,
           marginBottom: 12,
@@ -206,7 +227,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       props: {
         style: {
           fontSize: 10,
-          fontWeight: 900,
+          fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
           letterSpacing: 1.4,
@@ -222,7 +243,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
       props: {
         style: {
           fontSize: 10,
-          fontWeight: 900,
+          fontWeight: 400,
           color: BLACK,
           textTransform: "uppercase",
           letterSpacing: 1.4,
@@ -273,7 +294,7 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
               justifyContent: "center",
               alignItems: "center",
               paddingRight: 18,
-              borderRight: "3px solid #000000",
+              borderRight: "1px solid #000000",
               minWidth: 170,
             },
             children: leftChildren,
@@ -301,13 +322,13 @@ export async function renderSignaturePng(input: PngInput): Promise<Buffer> {
     fonts: [
       {
         name: FONT,
-        data: cachedFont,
+        data: cachedBlackFont,
         weight: 900,
         style: "normal",
       },
       {
         name: FONT,
-        data: cachedFont,
+        data: cachedRegularFont,
         weight: 400,
         style: "normal",
       },

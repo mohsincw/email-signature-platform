@@ -165,17 +165,59 @@ Admin or Exchange Admin.
 
 ### Step A — Inbound connector (trusts our droplet IP)
 
-1. **Mail flow → Connectors → + Add a connector**
-2. **From**: `Partner organization`
-3. **To**: `Office 365`
-4. **Name**: `Chaiiwala Signature Relay (inbound)`
-5. **How to identify your partner**:
-   - Choose **By verifying that the IP address of the sending server matches one of these IP addresses**
-   - Add the droplet IP: `167.172.49.118`
-6. **Security restrictions**:
-   - ☑ Reject email if not sent over TLS
-   - ☐ Reject email if sender domain doesn't match certificate (leave unchecked)
-7. Click **Save**
+The Exchange Admin Center UI can only create a **Partner**-type
+inbound connector, which is NOT enough to allow relay to external
+recipients (mail to internal chaiiwala.co.uk addresses will work but
+mail to Gmail / Hotmail / etc. will be rejected with
+`5.7.64 TenantAttribution; Relay Access Denied`).
+
+You must create it via PowerShell as an **OnPremises** connector with
+`CloudServicesMailEnabled` set to `$true`.
+
+1. On any Windows machine, open PowerShell and connect to Exchange
+   Online:
+
+   ```powershell
+   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+   Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser
+   Import-Module ExchangeOnlineManagement
+   Connect-ExchangeOnline -UserPrincipalName your-admin@chaiiwala.co.uk
+   ```
+
+2. Create the inbound connector:
+
+   ```powershell
+   New-InboundConnector `
+     -Name "Chaiiwala Signature Relay (inbound)" `
+     -ConnectorType OnPremises `
+     -SenderDomains "smtp:*;1" `
+     -SenderIPAddresses 167.172.49.118 `
+     -RequireTls $true `
+     -CloudServicesMailEnabled $true `
+     -Enabled $true
+   ```
+
+3. Verify:
+
+   ```powershell
+   Get-InboundConnector "Chaiiwala Signature Relay (inbound)" | fl Name,ConnectorType,SenderIPAddresses,SenderDomains,Enabled,RequireTls,CloudServicesMailEnabled
+   ```
+
+   You should see `ConnectorType: OnPremises`, `RequireTls: True`,
+   `CloudServicesMailEnabled: True`.
+
+> **Why `CloudServicesMailEnabled` matters:** despite the misleading
+> name, this flag tells Exchange Online to treat the internal
+> `X-MS-Exchange-Organization-*` headers as authoritative and to
+> attribute the inbound message to your tenant — which is what lets
+> Exchange relay the message to external recipients rather than
+> treating it as plain direct-send (internal only).
+
+> **Also required:** your SPF record for `chaiiwala.co.uk` MUST list
+> the droplet IP, e.g.
+> `v=spf1 ip4:167.172.49.118 include:spf.protection.outlook.com -all`.
+> Verify with `dig txt chaiiwala.co.uk +short`. Without this, external
+> delivery will also fail for tenant-attribution reasons.
 
 ### Step B — Outbound connector (routes mail to our droplet)
 

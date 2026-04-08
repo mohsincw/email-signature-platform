@@ -64,15 +64,15 @@ export async function rewriteMessageWithSignature(
 
   const signatureHtmlSnippet = `<br/>${cidImg}${disclaimerHtml}`;
 
-  // Augment the HTML body. If the original message was HTML, insert
-  // just before </body>; else wrap the text/html we synthesise.
+  // Augment the HTML body. For forwards and replies the signature must
+  // sit at the bottom of the sender's NEW content, not at the bottom of
+  // the entire thread (which would be below the quoted original). We
+  // look for Outlook's forward/reply boundary markers and insert the
+  // signature immediately before them. This matches what CodeTwo and
+  // Outlook's own signature placement do.
   let newHtml: string;
   if (parsed.html && typeof parsed.html === "string") {
-    if (parsed.html.includes("</body>")) {
-      newHtml = parsed.html.replace("</body>", `${signatureHtmlSnippet}</body>`);
-    } else {
-      newHtml = parsed.html + signatureHtmlSnippet;
-    }
+    newHtml = insertSignatureIntoHtml(parsed.html, signatureHtmlSnippet);
   } else {
     // Plain-text-only messages — synthesise an HTML part with the
     // original text, then the signature. Nodemailer sends both the
@@ -155,6 +155,55 @@ export async function rewriteMessageWithSignature(
   );
 
   return { raw: info.message as Buffer };
+}
+
+/**
+ * Insert the signature snippet into an HTML body at the right spot:
+ * immediately above the forward/reply quoted content if we can find
+ * a well-known boundary marker, otherwise just before </body>, or at
+ * the very end if there's no body tag either.
+ *
+ * Markers checked (in order, first hit wins):
+ *   - <div id="appendonsend">    — Outlook Web / new Outlook desktop
+ *   - <div id="divRplyFwdMsg">   — classic Outlook reply/forward divider
+ *   - <hr id="stopSpelling">     — classic Outlook forward divider
+ *   - <div class="OutlookMessageHeader"> — classic Outlook forward header
+ *   - <div class="gmail_quote">  — Gmail quoted content wrapper
+ *   - <blockquote type="cite">   — generic webmail quote block
+ *   - -----Original Message----- — plain-text forward header in HTML
+ *   - On <date> wrote:           — generic reply intro
+ */
+function insertSignatureIntoHtml(html: string, snippet: string): string {
+  const markers: RegExp[] = [
+    /<div[^>]*\bid=["']appendonsend["'][^>]*>/i,
+    /<div[^>]*\bid=["']divRplyFwdMsg["'][^>]*>/i,
+    /<hr[^>]*\bid=["']stopSpelling["'][^>]*>/i,
+    /<div[^>]*\bclass=["'][^"']*\bOutlookMessageHeader\b[^"']*["'][^>]*>/i,
+    /<div[^>]*\bclass=["'][^"']*\bgmail_quote\b[^"']*["'][^>]*>/i,
+    /<blockquote[^>]*\btype=["']cite["'][^>]*>/i,
+    /-----\s*Original Message\s*-----/i,
+    /On\s[^<]{1,120}\swrote:/i,
+  ];
+
+  let earliest: { index: number } | null = null;
+  for (const re of markers) {
+    const m = html.match(re);
+    if (m && m.index !== undefined) {
+      if (earliest === null || m.index < earliest.index) {
+        earliest = { index: m.index };
+      }
+    }
+  }
+
+  if (earliest !== null) {
+    return html.slice(0, earliest.index) + snippet + html.slice(earliest.index);
+  }
+
+  if (html.includes("</body>")) {
+    return html.replace("</body>", `${snippet}</body>`);
+  }
+
+  return html + snippet;
 }
 
 function formatAddressList(
