@@ -1,102 +1,206 @@
 # Email Signature Platform
 
-Internal email signature management platform for Chaiiwala's Microsoft 365 organisation.
+Self-hosted email signature management for a Microsoft 365 tenant.
+Operationally equivalent to CodeTwo Email Signatures 365's cloud mode:
+outbound mail from the tenant is redirected through an SMTP relay
+that injects a pixel-perfect PNG signature (rendered server-side with
+Satori + resvg), then the message is sent back to Exchange Online for
+delivery — internally *and* externally — with no per-user Outlook
+setup, no Outlook add-ins, and no client installs.
+
+Built for `chaiiwala.co.uk` and currently running against that tenant,
+but the moving parts are tenant-agnostic — see
+[Using as a module in another project](#using-as-a-module-in-another-project)
+below.
 
 ## Architecture
 
-| Component | Path | Port | Description |
-|-----------|------|------|-------------|
-| Admin Web | `apps/admin-web` | 3000 | Next.js admin UI + API routes (auth, senders, settings, Outlook deploy) |
-| Mail Processor | `apps/mail-processor` | 2525 | SMTP server that intercepts and signs outbound email (self-hosted, not on Vercel) |
+```
+┌─────────────────────────┐        ┌──────────────────────────┐
+│  admin-web              │  HTTPS │  Supabase                │
+│  Next.js 15 + API       │◄──────►│  Postgres + Storage      │
+│  (deployed to Vercel)   │        │                          │
+└─────────────────────────┘        └──────────┬───────────────┘
+           ▲                                  │
+           │ read/write                       │ reads
+           │ sender records                   │ sender records
+           │                                  ▼
+           │                        ┌──────────────────────────┐
+           │                        │  mail-processor          │
+           │                        │  Node SMTP relay         │
+           │                        │  (DigitalOcean droplet)  │
+           │                        └──────────┬───────────────┘
+           │                                   │ SMTP STARTTLS
+           │                                   ▼
+           │                        ┌──────────────────────────┐
+           └────────────────────────┤  Exchange Online         │
+                                    │  (transport rule +       │
+                                    │   inbound/outbound       │
+                                    │   connectors)            │
+                                    └──────────────────────────┘
+```
 
-### Shared Packages
-
-- `packages/database` — Prisma schema and database client
-- `packages/shared-types` — TypeScript DTOs and constants
-- `packages/signature-renderer` — HTML/plain text signature generation
-- `packages/config` — Environment variable helpers
+| Component | Path | Role |
+|---|---|---|
+| Admin Web | `apps/admin-web` | Next.js 15 app — login, CRUD for senders, global settings, live preview. Deploys to Vercel. |
+| Mail Processor | `apps/mail-processor` | Node SMTP server on port 25 — receives mail redirected from Exchange, rebuilds it with a CID-embedded PNG signature, relays it back to Exchange. Runs on any VPS with Docker. |
+| `packages/signature-png` | `packages/signature-png` | Shared PNG rendering — Satori + resvg + Myriad Pro fonts. Used by both the admin-web live preview and the mail-processor inject path. |
+| `packages/signature-renderer` | `packages/signature-renderer` | HTML / plain-text signature generation used by the admin-web copy-HTML feature and Outlook deploy code path. |
+| `packages/database` | `packages/database` | Prisma schema + client. Shared by both apps. |
+| `packages/shared-types` | `packages/shared-types` | TypeScript DTOs and constants shared across apps. |
+| `packages/config` | `packages/config` | Thin wrapper for env-var reads with `required()` / `optional()` helpers. |
 
 ## Prerequisites
 
 - Node.js 20+
 - pnpm 9+
-- Docker & Docker Compose (for local Postgres + MinIO)
+- A Microsoft 365 tenant you're Global Admin / Exchange Admin on
+- A Postgres database (Supabase or any managed PG)
+- A VPS with Docker that can bind port 25 (any cloud works —
+  DigitalOcean, Hetzner, Linode, AWS Lightsail)
+- A DNS A record for the mail relay (e.g.
+  `mail-relay.yourdomain.tld`) pointing at the VPS
 
-## Local Setup
-
-### 1. Start infrastructure
-
-```bash
-cd infrastructure/docker
-docker compose up -d
-```
-
-Starts PostgreSQL (5432) and MinIO (9000 / console 9001).
-
-### 2. Install dependencies
+## Local development
 
 ```bash
 pnpm install
-```
 
-### 3. Configure environment
-
-```bash
 cp apps/admin-web/.env.example apps/admin-web/.env
 cp apps/mail-processor/.env.example apps/mail-processor/.env
-```
+# fill in DATABASE_URL and related settings
 
-For local dev, set `DATABASE_URL` and `DIRECT_URL` to your local Postgres, and point `S3_*` at MinIO.
-
-### 4. Set up database
-
-```bash
 pnpm db:generate
 pnpm db:migrate
-pnpm db:seed
-```
+pnpm db:seed          # creates the initial admin user
 
-### 5. Run
-
-```bash
-pnpm dev
-```
-
-Individual apps:
-
-```bash
-pnpm dev:admin    # Next.js (UI + API) on :3000
-pnpm dev:mail     # Mail processor on :2525
+pnpm dev:admin        # Next.js on :3000
+pnpm dev:mail         # Mail processor on :2525 locally (25 in prod)
 ```
 
 ## Deployment
 
-The admin UI + API deploy to **Vercel** as a single Next.js project. Database and storage are provided by **Supabase**.
+### Admin Web → Vercel
 
-### One-time setup
+1. Import the repo as a Next.js project. `vercel.json` at the repo
+   root handles the monorepo build: `prisma generate` →
+   `@esp/signature-png build` → `next build` for `apps/admin-web`.
+2. Set environment variables from `apps/admin-web/.env.example` in
+   the Vercel project settings. Only `DATABASE_URL`, `DIRECT_URL`,
+   `JWT_SECRET` and the seed admin vars are strictly required.
+3. Run `pnpm db:seed` once against `DIRECT_URL` to create the
+   first admin login.
+4. Point a custom domain at the Vercel project.
 
-1. **Supabase** — create a project, copy the pooled `DATABASE_URL` (Transaction pooler, port 6543) and `DIRECT_URL` (Direct connection, port 5432). Create a Storage bucket called `signatures` and enable the S3 connection to get access keys.
-2. **Vercel** — import the GitHub repo. Vercel will pick up `vercel.json` which runs `prisma generate`, `prisma migrate deploy`, then `next build`.
-3. **Environment variables** — set the vars listed in `apps/admin-web/.env.example` in the Vercel project settings.
-4. **First admin user** — run `pnpm db:seed` locally against the Supabase `DIRECT_URL`, or trigger seeding manually. The default admin is read from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`.
-5. **Custom domain** — add `emailsignatures.chaiiwala.co.uk` under Vercel → Settings → Domains.
+### Mail Processor → VPS with Docker
 
-The mail-processor is **not** deployed to Vercel — it needs a persistent TCP listener. Host it on a VPS when you're ready.
+This is documented in detail in the mail-processor README because it
+has to stay next to the code, the Dockerfile and the connector PS
+commands:
 
-## Database Schema
+**→ [`apps/mail-processor/README.md`](apps/mail-processor/README.md)**
 
-- **Sender** — email, name, title, phone, enabled flag, optional image key
-- **GlobalSettings** — singleton row (address, website, logo URL, badge URL)
-- **AdminUser** — bcrypt-hashed login
-- **DeploymentLog** — Outlook deployment history per sender
+Short version: SSH into the VPS, clone the repo, `cp .env.example .env`,
+fill in `DATABASE_URL`, `docker compose up -d --build`, then set up
+the Exchange Online connectors + transport rule from the same README.
 
-## Microsoft 365 Integration
+### Microsoft 365 routing
 
-See [docs/m365-routing.md](docs/m365-routing.md) for instructions on routing M365 outbound mail through the processor.
+All Exchange Online configuration (inbound connector, outbound
+connector, transport rule, TNEF, SPF) lives in:
 
-## TODO
+**→ [`docs/m365-routing.md`](docs/m365-routing.md)**
 
-- [ ] Admin authentication (SSO / Azure AD)
-- [ ] Microsoft 365 mail flow connector configuration
-- [ ] TLS on mail processor SMTP server
-- [ ] Monitoring and alerting
+which itself points into the mail-processor README for the
+step-by-step commands.
+
+## Database schema
+
+- **Sender** — email, name, title, phone(s), `enabled` flag, optional
+  `imageKey` for a per-sender override image. Lowercase-normalised on
+  write.
+- **GlobalSettings** — singleton row holding address lines, website,
+  logo URL, badge URL and the italic disclaimer text.
+- **AdminUser** — bcrypt login for the admin UI.
+- **DeploymentLog** — historical log of per-sender Outlook deploys
+  (the Outlook deploy code path exists but the UI button has been
+  removed; server-side relay replaces it operationally).
+
+## Key operational design choices
+
+- **Server-side only.** There is no Outlook add-in, no per-user
+  signature deployment, no client configuration. Every outbound
+  message the tenant sends is routed through the droplet via an
+  Exchange transport rule and the signature is injected centrally.
+- **PNG, not HTML.** The signature is rendered as a 314×154 PNG
+  embedded as a `cid:` MIME part. This is how CodeTwo does it too —
+  it's pixel-perfect across every email client (including Outlook
+  mobile, Apple Mail, Gmail web, Gmail app) and sidesteps the
+  long-standing Outlook HTML rendering bugs around inline images,
+  tables and fonts.
+- **Loop prevention is belt-and-braces.** The Exchange transport rule
+  has an exception on a custom `X-ESP-Processed: v1` header, AND the
+  mail-processor stamps that header at the raw-buffer level in
+  `apps/mail-processor/src/relay.ts` on *every* relay — including
+  pass-throughs for senders that aren't in the DB. This stops
+  Exchange from redirecting the same message back to the droplet
+  indefinitely.
+- **Disabled / unknown senders still deliver.** If a sender isn't in
+  the DB or is marked disabled, the droplet rebuilds the MIME with
+  no signature changes and relays it normally. Nothing is ever
+  dropped because of a DB miss.
+- **The PNG cache clears on container restart.** In-memory LRU keyed
+  on the exact input hash. Rebuilding the Docker image (via
+  `docker compose up -d --build`) is enough to force fresh renders
+  after a typography change.
+
+## Using as a module in another project
+
+The two apps and five packages in this repo are all independent
+workspaces under a pnpm workspace at the root. To embed the whole
+thing in a larger monorepo:
+
+1. Add the repo as a `git subtree` or `git submodule` under your
+   project (`subtree` is friendlier for day-to-day editing).
+2. Extend your project's pnpm workspace definition so its
+   `pnpm-workspace.yaml` includes the paths under the embedded
+   directory, e.g.:
+   ```yaml
+   packages:
+     - 'apps/*'
+     - 'packages/*'
+     - 'vendor/email-signature-platform/apps/*'
+     - 'vendor/email-signature-platform/packages/*'
+   ```
+3. The workspace package names are `@esp/*` — make sure no other
+   packages in the outer monorepo use that scope.
+4. `apps/admin-web` is a Next.js 15 app; if your outer project is
+   also Next.js you probably want to run it as a separate Vercel
+   project rather than trying to merge app routers.
+5. `apps/mail-processor` is a plain Node service with its own
+   `Dockerfile` and `docker-compose.yml`. It has no shared runtime
+   with the admin-web so it can be deployed completely independently.
+6. Both apps read `DATABASE_URL` for the same Postgres database.
+   Point them at the same Supabase / RDS / Neon instance and they'll
+   share sender state.
+
+No code assumes a specific tenant domain — the sender domain,
+smart host, and hostnames are all configurable via env vars on the
+mail-processor (`SMART_HOST_HOST`, `HOSTNAME`) and via the admin
+UI's Global Settings page on the admin-web side (address, website,
+logo, badge, disclaimer).
+
+## Environment variables
+
+See the `.env.example` file next to each app:
+
+- `apps/admin-web/.env.example` — database, JWT secret, seed admin
+- `apps/mail-processor/.env.example` — database, smart host, hostname,
+  TLS cert paths
+
+## Troubleshooting
+
+For mail-flow issues (connector errors, `5.7.64 TenantAttribution`,
+`winmail.dat` attachments, disabled-sender delivery, loop detection),
+see the Troubleshooting section at the bottom of
+[`apps/mail-processor/README.md`](apps/mail-processor/README.md).

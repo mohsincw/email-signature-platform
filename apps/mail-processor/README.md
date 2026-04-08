@@ -36,12 +36,22 @@ Outlook / iPhone / Mac Mail
 │ 1. Parse MIME        │
 │ 2. Look up sender in │
 │    Supabase          │
-│ 3. Render Myriad Pro │
-│    signature PNG     │
-│ 4. Rebuild MIME with │
-│    CID attachment    │
-│ 5. Add X-ESP-        │
-│    Processed header  │
+│ 3a. If sender found  │
+│     + enabled:       │
+│     render PNG,      │
+│     rebuild MIME     │
+│     with CID img     │
+│ 3b. If not found /   │
+│     disabled:        │
+│     rebuild MIME     │
+│     unchanged (no    │
+│     signature) so    │
+│     the message      │
+│     still flows      │
+│ 4. Always stamp      │
+│    X-ESP-Processed   │
+│    header before     │
+│    relaying          │
 └──────────┬───────────┘
            │ SMTP to
            │ chaiiwala-co-uk.mail.protection.outlook.com:25
@@ -226,8 +236,7 @@ You must create it via PowerShell as an **OnPremises** connector with
 3. **To**: `Partner organization`
 4. **Name**: `Chaiiwala Signature Relay (outbound)`
 5. **When to use**:
-   - Choose **Only when email messages are sent to these domains**, add `*` (apply to all outbound)
-   - OR **Only when I have a transport rule set up that redirects messages to this connector** — pick this (cleaner)
+   - Choose **Only when I have a transport rule set up that redirects messages to this connector** (cleaner than domain matching — the transport rule in Step C handles the scoping)
 6. **How to route**:
    - Choose **Route email through these smart hosts**
    - Add `mail-relay.chaiiwala.co.uk`
@@ -248,19 +257,51 @@ You must create it via PowerShell as an **OnPremises** connector with
 2. **Name**: `Chaiiwala Signature Relay`
 3. **Apply this rule if**:
    - The sender is located → Inside the organization
-4. **AND**:
-   - The recipient is located → Outside the organization
-   - *(Or leave this off if you want signatures on internal mail too)*
-5. **Do the following**:
+4. **Do the following**:
    - Redirect the message to → the following connector → `Chaiiwala Signature Relay (outbound)`
-6. **Except if**:
+5. **Except if**:
    - A message header → includes any of these words
    - Header name: `X-ESP-Processed`
    - Header value: `v1`
-7. **Rule mode**: Enforce
-8. Save
+6. **Rule mode**: Enforce
+7. Save
 
-### Step D — Disable the old transport rule (if present)
+> **Do NOT scope the rule to "recipient is outside the organization".**
+> Internal mail (chaiiwala → chaiiwala) should also be processed so the
+> signature is applied consistently regardless of destination. If the
+> rule ends up with `SentToScope = NotInOrganization`, internal mail
+> silently bypasses the droplet with no signature. Fix by clearing it:
+>
+> ```powershell
+> Set-TransportRule "Chaiiwala Signature Relay" -SentToScope $null
+> ```
+
+### Step D — Disable TNEF on outbound mail
+
+Classic Outlook can send messages in Microsoft's proprietary
+Rich-Text / TNEF format. When Exchange Online hands a TNEF message
+to our droplet via the outbound connector, `mailparser` can't decode
+the binary TNEF body and the rebuilt MIME ends up with a
+`winmail.dat` attachment and no rich content. Fix by telling
+Exchange to convert everything to standard MIME (HTML / plain text)
+before sending it through any connector:
+
+```powershell
+Set-RemoteDomain Default -TNEFEnabled $false
+```
+
+Verify:
+
+```powershell
+Get-RemoteDomain Default | fl Name,TNEFEnabled
+```
+
+You want `TNEFEnabled : False`. This is the Microsoft-recommended
+default for any org that's not doing pure Exchange-to-Exchange RTF
+interop and will not affect HTML formatting — only the legacy
+Word-RTF-via-TNEF wrapper.
+
+### Step E — Disable the old transport rule (if present)
 
 If you set up the hot-linked PNG transport rule earlier (via the
 admin UI's Server-Side Mode button), **disable or delete it** so you
@@ -321,12 +362,63 @@ docker compose down
 - Check certbot logs: `docker compose logs certbot`
 - Re-run certbot: `docker compose run --rm certbot`
 
-**"Signature not injected" in recipient email**
+**External delivery fails with `5.7.64 TenantAttribution; Relay Access Denied`**
+- Internal mail (chaiiwala → chaiiwala) works but Gmail / Hotmail
+  bounces. The inbound connector isn't fully trusted for relay.
+- Check it was created with `ConnectorType: OnPremises` AND
+  `CloudServicesMailEnabled: True`:
+  ```powershell
+  Get-InboundConnector "Chaiiwala Signature Relay (inbound)" | fl ConnectorType,CloudServicesMailEnabled,RequireTls
+  ```
+- If either is missing, fix in place:
+  ```powershell
+  Set-InboundConnector "Chaiiwala Signature Relay (inbound)" `
+    -CloudServicesMailEnabled $true -RequireTls $true
+  ```
+- Also verify SPF contains the droplet IP:
+  `dig txt chaiiwala.co.uk +short` should include the droplet's IPv4
+  alongside `include:spf.protection.outlook.com`.
+
+**Internal mail has no signature but external does**
+- The transport rule is probably scoped to
+  `SentToScope: NotInOrganization`, so internal recipients skip the
+  rule entirely. Clear it:
+  ```powershell
+  Set-TransportRule "Chaiiwala Signature Relay" -SentToScope $null
+  ```
+
+**Mail from a sender not in the DB never arrives at the recipient**
+- This was a loop bug: the droplet used to relay non-DB messages
+  unchanged, which meant the `X-ESP-Processed` header was missing
+  and Exchange kept looping the message back until hop-count
+  detection killed it. Fixed in `relay.ts` — every relayed message
+  is now stamped with `X-ESP-Processed: v1` at the raw-buffer level,
+  regardless of which code path produced it. If you see this come
+  back, check you're on a build that includes commit `42b525e` or
+  later.
+
+**Recipient gets a `winmail.dat` attachment and no content**
+- TNEF. Outlook sent the message as Rich Text / TNEF and Exchange
+  passed it through to the droplet without converting. `mailparser`
+  can't decode TNEF so the rebuilt MIME keeps it as an attachment.
+- Fix once, org-wide:
+  ```powershell
+  Set-RemoteDomain Default -TNEFEnabled $false
+  ```
+  See Step D above.
+
+**A sender re-enabled in the admin UI still has no signature for ~1 minute**
+- Was caused by `sender-lookup.ts` caching null results for 60s.
+  Fixed — the negative path no longer writes to the cache and a
+  toggled sender is picked up on the very next email. Check you're
+  on commit `3a6c49c` or later.
+
+**"Signature not injected" in recipient email (but the email arrives plain)**
 - Check mail-processor logs — was the sender email found in the DB?
-  (`No matching sender in DB — relaying unchanged`)
+  (`No matching sender in DB — rebuilding for relay (no signature)`)
 - Verify the sender exists on the admin UI at
   https://your-vercel-url/senders, enabled, with the exact email
-  that's being used as the From address
+  that's being used as the From address (case-insensitive).
 
 **"Signature appears TWICE" in recipient email**
 - You probably still have the old Server-Side Mode hot-link transport

@@ -2,55 +2,92 @@
 
 ## Overview
 
-This document outlines the steps to route outbound Microsoft 365 email through the mail processor service for automatic signature injection.
-
-## Architecture
+Outbound mail from the tenant is redirected to the mail-processor over
+SMTP, signed (if the sender exists and is enabled in the database),
+and relayed back to Exchange Online for delivery. The round-trip is
+loop-safe because every relayed message is stamped with an
+`X-ESP-Processed: v1` header and the Exchange transport rule skips
+messages that already carry it.
 
 ```
-Sender (Outlook) → M365 Exchange Online → Mail Flow Rule → Mail Processor (SMTP :2525) → SMTP Relay → Internet
+Outlook / OWA / mobile
+   │
+   ▼
+Exchange Online ──(outbound connector + transport rule)──► mail-processor
+   ▲                                                           │
+   │                                                           │ rebuilds MIME,
+   │                                                           │ stamps X-ESP-Processed
+   │                                                           ▼
+   └──(inbound connector, trusts droplet IP)──────────── back to tenant
+                                                         (delivers to recipient)
 ```
 
-## TODO: Setup Steps
+## Full setup guide
 
-### 1. Exchange Online Mail Flow Rule
+All of the step-by-step configuration — droplet setup, inbound /
+outbound connectors, transport rule, TNEF disabling, PowerShell
+commands and troubleshooting — lives in the mail-processor's own
+README because it has to stay next to the code that implements it:
 
-Create a transport rule in Exchange Admin Center that redirects outbound mail to the mail processor:
+**→ [`apps/mail-processor/README.md`](../apps/mail-processor/README.md)**
 
-- **Condition**: Sender is inside the organisation
-- **Action**: Redirect the message to the mail processor host
-- **Exceptions**: Messages with header `X-Org-Signature-Applied` equals `true`
+## Quick reference — required Exchange Online configuration
 
-### 2. Outbound Connector
+The mail-processor README has the full walkthrough. For a sanity
+check / audit, these are the settings that have to be in place:
 
-Configure an outbound connector in Exchange Online:
+### Inbound connector (`Chaiiwala Signature Relay (inbound)`)
 
-- **Type**: Partner organisation
-- **Smart host**: Your mail processor's public hostname/IP
-- **Port**: 2525 (or configured port)
-- **TLS**: Required (configure certificates)
+| Property | Required value |
+|---|---|
+| `ConnectorType` | `OnPremises` |
+| `SenderIPAddresses` | The droplet's public IPv4 |
+| `SenderDomains` | `smtp:*;1` |
+| `RequireTls` | `True` |
+| `CloudServicesMailEnabled` | `True` |
+| `Enabled` | `True` |
 
-### 3. Mail Processor Relay Config
+The Admin UI can only create a `Partner`-type inbound connector which
+is **not** enough for external relay — you must create this one via
+`New-InboundConnector` in PowerShell (see the mail-processor README
+Step A).
 
-Configure the mail processor to relay processed messages back through Microsoft 365 or directly to the internet:
+### Outbound connector (`Chaiiwala Signature Relay (outbound)`)
 
-- Set `SMTP_RELAY_HOST` to your M365 MX endpoint or a dedicated relay
-- Set `SMTP_RELAY_PORT` to the appropriate port
+| Property | Required value |
+|---|---|
+| `ConnectorType` | `Partner` |
+| `SmartHosts` | `mail-relay.chaiiwala.co.uk` (or your droplet's hostname) |
+| `TlsSettings` | `EncryptionOnly` (Any digital certificate) |
+| `UseMXRecord` | `False` |
+| `IsTransportRuleScoped` | `True` |
 
-### 4. DNS / Network
+### Transport rule (`Chaiiwala Signature Relay`)
 
-- Ensure the mail processor is reachable from Exchange Online
-- Configure SPF/DKIM/DMARC to include the mail processor's IP
-- Open firewall for inbound SMTP on the processor port
+| Property | Required value |
+|---|---|
+| `FromScope` | `InOrganization` |
+| `SentToScope` | **unset** (`$null`) — do **not** scope to `NotInOrganization` or internal mail skips the relay |
+| Action | Redirect to the outbound connector above |
+| Exception | Header `X-ESP-Processed` contains `v1` |
+| `State` | `Enabled` |
 
-### 5. TLS Certificates
+### Tenant-wide
 
-- Install valid TLS certificates on the mail processor
-- Enable STARTTLS in the SMTP server configuration
-- Remove `disabledCommands: ["STARTTLS"]` from smtp-server config
+| Setting | Required value | Why |
+|---|---|---|
+| SPF TXT on sender domain | Must include the droplet IPv4 alongside `include:spf.protection.outlook.com` | Required for `TenantAttribution` to succeed on relay back in |
+| `Get-RemoteDomain Default` | `TNEFEnabled: False` | Stops Outlook's Rich-Text messages turning into `winmail.dat` attachments on the rebuilt MIME |
 
-## Security Considerations
+## Security posture
 
-- The mail processor should only accept connections from known Microsoft 365 IP ranges
-- Use TLS for all SMTP connections
-- The `X-Org-Signature-Applied` header prevents double-signing
-- Consider rate limiting and connection throttling
+- The mail-processor listens on port 25 with STARTTLS enabled via
+  Let's Encrypt certificates.
+- Exchange → droplet trust is done by Exchange's TLS + the droplet's
+  public cert matching its hostname.
+- Droplet → Exchange trust is done by IP whitelisting on the inbound
+  connector. No SMTP AUTH or service account is involved.
+- The `X-ESP-Processed` loop-prevention header is stamped at the raw
+  buffer level in `relay.ts` so every relayed message — including
+  unchanged pass-throughs for disabled / unknown senders — cannot
+  cause an Exchange-side loop.
