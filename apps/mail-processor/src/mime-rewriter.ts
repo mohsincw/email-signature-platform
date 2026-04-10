@@ -120,15 +120,47 @@ export async function rewriteMessageWithSignature(
   const bcc = formatAddressList(parsed.bcc);
   const replyTo = formatAddressList(parsed.replyTo);
 
-  // Preserve original attachments (that aren't inline content already
-  // referenced in the HTML — those get copied through as-is).
-  const originalAttachments = (parsed.attachments || []).map((att) => ({
-    filename: att.filename,
-    content: att.content,
-    contentType: att.contentType,
-    cid: att.cid,
-    contentDisposition: (att.contentDisposition as any) || "attachment",
-  }));
+  // Preserve original attachments, separating calendar parts from
+  // regular attachments. Calendar invites are `text/calendar` MIME
+  // parts that Outlook expects to live inside the multipart/alternative
+  // alongside text/plain and text/html. If we dump them into the
+  // regular attachments array, nodemailer puts them outside the
+  // alternative boundary, which turns them into standalone .ics file
+  // attachments and breaks the inline meeting invite rendering.
+  const regularAttachments: any[] = [];
+  let calendarEvent: { method: string; content: Buffer } | undefined;
+
+  for (const att of parsed.attachments || []) {
+    if (
+      att.contentType === "text/calendar" ||
+      att.contentType === "application/ics"
+    ) {
+      // Take the first calendar part — that's the inline invite.
+      // If there's also an application/ics copy (attachment version),
+      // skip it; nodemailer's icalEvent adds one automatically.
+      if (!calendarEvent && att.contentType === "text/calendar") {
+        // Extract the METHOD from the content type params or from
+        // the VCALENDAR body itself. Outlook uses the method to
+        // decide whether to show Accept / Decline buttons.
+        const methodMatch = att.content
+          .toString()
+          .match(/METHOD:(\w+)/i);
+        calendarEvent = {
+          method: methodMatch ? methodMatch[1] : "REQUEST",
+          content: att.content,
+        };
+      }
+      // Skip — don't add calendar parts to regular attachments
+    } else {
+      regularAttachments.push({
+        filename: att.filename,
+        content: att.content,
+        contentType: att.contentType,
+        cid: att.cid,
+        contentDisposition: (att.contentDisposition as any) || "attachment",
+      });
+    }
+  }
 
   // Use nodemailer to build the outgoing MIME. We use streamTransport
   // in buffer mode so nothing goes over the wire — we just need the
@@ -154,8 +186,20 @@ export async function rewriteMessageWithSignature(
     headers: {
       [PROCESSED_HEADER]: PROCESSED_HEADER_VALUE,
     },
+    // Calendar invites go through nodemailer's dedicated icalEvent
+    // path so they stay as text/calendar inside multipart/alternative
+    // (where Outlook's meeting rendering can see them) rather than
+    // being demoted to a regular attachment.
+    ...(calendarEvent
+      ? {
+          icalEvent: {
+            method: calendarEvent.method,
+            content: calendarEvent.content,
+          },
+        }
+      : {}),
     attachments: [
-      ...originalAttachments,
+      ...regularAttachments,
       {
         filename: "signature.png",
         content: signaturePng,
