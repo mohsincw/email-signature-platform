@@ -2,7 +2,6 @@ import { SMTPServer, type SMTPServerAuthentication } from "smtp-server";
 import { promises as fs } from "fs";
 import {
   rewriteMessageWithSignature,
-  rebuildMessageForRelay,
   isAlreadyProcessed,
   extractSenderEmail,
 } from "./mime-rewriter";
@@ -72,19 +71,21 @@ export async function createSmtpServer(): Promise<SMTPServer> {
         const envTo = session.envelope.rcptTo.map((r) => r.address);
 
         try {
-          // Loop prevention. Every pass-through path rebuilds the
-          // MIME via rebuildMessageForRelay so that Exchange's
-          // transport-rule exception reliably sees the
-          // X-ESP-Processed header AND the previous hop's Received:
-          // chain is dropped (otherwise Exchange bounces with
-          // 554 5.4.14 Hop count exceeded).
+          // Loop prevention — relay.ts already stamps X-ESP-Processed
+          // on every relay so Exchange's transport-rule exception will
+          // see it and stop routing the message back to us. For pass-
+          // through paths (already processed, no sender in DB, no From
+          // header) we relay the ORIGINAL raw bytes untouched. We must
+          // NOT rebuild the MIME because simpleParser destroys TNEF
+          // content (turns it into a winmail.dat attachment), which
+          // mangles messages from Outlook users composing in Rich
+          // Text format.
           if (await isAlreadyProcessed(raw)) {
             logger.info(
               { from: envFrom, to: envTo },
-              "Message already has X-ESP-Processed header — rebuilding for relay"
+              "Message already has X-ESP-Processed header — relaying unchanged"
             );
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            await relayMessage(raw, { from: envFrom, to: envTo });
             await recordEvent({
               senderEmail: envFrom,
               recipients: envTo,
@@ -100,9 +101,8 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           // sometimes the server itself or a bounce address.
           const senderEmail = (await extractSenderEmail(raw)) ?? envFrom;
           if (!senderEmail) {
-            logger.warn("No sender email found — rebuilding for relay");
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            logger.warn("No sender email found — relaying unchanged");
+            await relayMessage(raw, { from: envFrom, to: envTo });
             await recordEvent({
               senderEmail: envFrom || "(unknown)",
               recipients: envTo,
@@ -117,10 +117,9 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           if (!senderData) {
             logger.info(
               { senderEmail },
-              "No matching sender in DB — rebuilding for relay (no signature)"
+              "No matching sender in DB — relaying unchanged (no signature)"
             );
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            await relayMessage(raw, { from: envFrom, to: envTo });
             await recordEvent({
               senderEmail,
               recipients: envTo,
