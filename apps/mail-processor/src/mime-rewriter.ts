@@ -247,13 +247,37 @@ export async function rebuildMessageForRelay(
   const bcc = formatAddressList(parsed.bcc);
   const replyTo = formatAddressList(parsed.replyTo);
 
-  const originalAttachments = (parsed.attachments || []).map((att) => ({
-    filename: att.filename,
-    content: att.content,
-    contentType: att.contentType,
-    cid: att.cid,
-    contentDisposition: (att.contentDisposition as any) || "attachment",
-  }));
+  // Same calendar-vs-regular split as the signed path — keep
+  // text/calendar inline in multipart/alternative so Outlook shows
+  // the meeting invite properly instead of demoting it to an .ics
+  // file attachment.
+  const regularAttachments: any[] = [];
+  let calendarEvent: { method: string; content: Buffer } | undefined;
+
+  for (const att of parsed.attachments || []) {
+    if (
+      att.contentType === "text/calendar" ||
+      att.contentType === "application/ics"
+    ) {
+      if (!calendarEvent && att.contentType === "text/calendar") {
+        const methodMatch = att.content
+          .toString()
+          .match(/METHOD:(\w+)/i);
+        calendarEvent = {
+          method: methodMatch ? methodMatch[1] : "REQUEST",
+          content: att.content,
+        };
+      }
+    } else {
+      regularAttachments.push({
+        filename: att.filename,
+        content: att.content,
+        contentType: att.contentType,
+        cid: att.cid,
+        contentDisposition: (att.contentDisposition as any) || "attachment",
+      });
+    }
+  }
 
   const streamTransport = nodemailer.createTransport({
     streamTransport: true,
@@ -276,7 +300,15 @@ export async function rebuildMessageForRelay(
     headers: {
       [PROCESSED_HEADER]: PROCESSED_HEADER_VALUE,
     },
-    attachments: originalAttachments,
+    ...(calendarEvent
+      ? {
+          icalEvent: {
+            method: calendarEvent.method,
+            content: calendarEvent.content,
+          },
+        }
+      : {}),
+    attachments: regularAttachments,
   });
 
   logger.debug(
