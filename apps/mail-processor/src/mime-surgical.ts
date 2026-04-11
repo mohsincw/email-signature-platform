@@ -248,32 +248,23 @@ const STRIP_ROUTING_HEADERS_EXACT = [
   "arc-seal",
   "arc-message-signature",
   "arc-authentication-results",
-  "x-ms-exchange-organization-originalarrivaltime",
-  "x-ms-exchange-organization-network-message-id",
-  "x-ms-exchange-organization-scl",
-  "x-ms-exchange-organization-authmechanism",
-  "x-ms-exchange-organization-authoras",
-  "x-ms-exchange-transport-crosstenantheadersstamped",
-  "x-ms-exchange-transport-endtoendlatency",
-  "x-ms-exchange-transport-rules-loop",
-  "x-ms-publictraffictype",
-  "x-ms-traffictypediagnostic",
-  "x-ms-office365-filtering-correlation-id",
-  "x-ms-exchange-atpsafelinks-stat",
-  "x-ms-exchange-senderadcheck",
-  "x-ms-exchange-antispam-messagedata-chunkcount",
-  "x-ms-exchange-antispam-messagedata-0",
-  "x-ms-exchange-antispam-messagedata-1",
-  "x-ms-exchange-antispam-messagedata",
-  "x-ms-exchange-antispam-relay",
-  "x-forefront-antispam-report",
-  "x-microsoft-antispam",
-  "x-microsoft-antispam-mailbox-delivery",
-  "x-microsoft-antispam-message-info",
   "authentication-results-original",
 ];
 const STRIP_ROUTING_HEADERS_PREFIX = [
-  "x-ms-exchange-crosstenant-",
+  // Nuke every Exchange / Microsoft / Forefront routing header by
+  // prefix. Exchange re-creates these on ingress via the inbound
+  // connector's IP-based trust, so clearing them resets its
+  // per-message hop counter / loop detection state without
+  // affecting deliverability.
+  "x-ms-exchange-",
+  "x-microsoft-",
+  "x-forefront-",
+  "x-ms-office365-",
+  "x-ms-traffictypediagnostic",
+  "x-ms-publictraffictype",
+  "x-eopattributedmessage",
+  "x-eoptenantattributed",
+  "x-originatororg",
 ];
 
 function stripRoutingHeadersFromTop(raw: Buffer): Buffer {
@@ -335,9 +326,13 @@ export function prepareForPassthrough(raw: Buffer): Buffer {
  * are lifted down into the sub-part so the inner structure is
  * preserved exactly. This is a structural no-op for mail clients
  * (they flatten single-child multiparts) but critically it gives
- * the top of the message a new random boundary, which is enough
- * to make Exchange treat the message as new in its hop-count
- * tracking.
+ * the top of the message a new random boundary AND a new
+ * Message-ID, which together are enough to make Exchange's
+ * per-message loop tracking treat this as a brand new message.
+ *
+ * Reply threading is preserved because we keep References and
+ * In-Reply-To untouched and stash the old Message-ID in
+ * References so mail clients can still chain replies together.
  */
 function wrapPassthroughInEnvelope(raw: Buffer): Buffer {
   const { end, sep } = findHeadersEnd(raw);
@@ -353,17 +348,44 @@ function wrapPassthroughInEnvelope(raw: Buffer): Buffer {
     getHeaderValue(headersBlock, "Content-Transfer-Encoding") || null;
   const originalMimeVersion =
     getHeaderValue(headersBlock, "MIME-Version") || "1.0";
+  const originalMessageId = getHeaderValue(headersBlock, "Message-ID");
+  const originalReferences = getHeaderValue(headersBlock, "References");
+
+  // Regenerate the Message-ID so Exchange's per-message loop
+  // tracking treats this as a brand new message. Critical for
+  // unsticking messages that have been cycling through retries
+  // and have hit Exchange's internal hop limit. A fresh random ID
+  // gives us a clean slate.
+  const newMessageId = `<esp-${randomUUID()}@chaiiwala.co.uk>`;
+
+  // Preserve reply threading: stash the old Message-ID into
+  // References (or prepend to existing References) so mail clients
+  // can still chain this email into the right conversation.
+  let newReferences = originalReferences || "";
+  if (originalMessageId && !newReferences.includes(originalMessageId)) {
+    newReferences = newReferences
+      ? `${newReferences} ${originalMessageId}`
+      : originalMessageId;
+  }
 
   const topHeaders = removeHeaders(headersBlock, [
     "content-type",
     "content-transfer-encoding",
     "mime-version",
+    "message-id",
+    "references",
   ]);
+
+  const referencesLine = newReferences
+    ? `References: ${newReferences}\r\n`
+    : "";
 
   const newTopHeaders =
     topHeaders +
     "\r\n" +
     `MIME-Version: ${originalMimeVersion}\r\n` +
+    `Message-ID: ${newMessageId}\r\n` +
+    referencesLine +
     `Content-Type: multipart/mixed; boundary="${boundary}"`;
 
   const firstPartHeaders =
