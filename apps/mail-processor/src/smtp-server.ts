@@ -1,8 +1,8 @@
 import { SMTPServer, type SMTPServerAuthentication } from "smtp-server";
 import { promises as fs } from "fs";
 import {
-  rewriteMessageWithSignature,
-  rebuildMessageForRelay,
+  rewriteMessageWithSignatureSurgical,
+  prepareMessageForPassthroughRelay,
   isAlreadyProcessed,
   extractSenderEmail,
 } from "./mime-rewriter";
@@ -72,24 +72,23 @@ export async function createSmtpServer(): Promise<SMTPServer> {
         const envTo = session.envelope.rcptTo.map((r) => r.address);
 
         try {
-          // Loop prevention. Every pass-through path rebuilds the
-          // MIME via rebuildMessageForRelay which:
-          //   1. Drops Exchange's accumulated Received / ARC headers
-          //      → prevents 554 5.4.14 Hop count exceeded.
-          //   2. Embeds X-ESP-Processed in the proper MIME header
-          //      block → Exchange's transport-rule exception matches.
-          //   3. Preserves calendar invites as inline text/calendar.
-          //
-          // We cannot just relay original raw bytes — Exchange doesn't
-          // match the prepended header reliably and the Received:
-          // chain causes hop count exceeded after a few round-trips.
+          // Every path uses surgical MIME modification — we never
+          // do a full parse-and-rebuild of the body anymore.
+          // Pass-throughs only touch the header block (strip
+          // Received + stamp X-ESP-Processed). The signed path
+          // additionally modifies the text/html and text/plain
+          // content in place and wraps the message in a new
+          // multipart/related envelope that adds the PNG as a
+          // sibling. No attachment re-encoding, no TNEF mangling,
+          // no calendar flattening, no size inflation, no size
+          // limit.
           if (await isAlreadyProcessed(raw)) {
             logger.info(
               { from: envFrom, to: envTo },
-              "Message already has X-ESP-Processed header — rebuilding for relay"
+              "Message already has X-ESP-Processed header — passing through"
             );
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            const prepared = prepareMessageForPassthroughRelay(raw);
+            await relayMessage(prepared, { from: envFrom, to: envTo });
             await recordEvent({
               senderEmail: envFrom,
               recipients: envTo,
@@ -105,9 +104,9 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           // sometimes the server itself or a bounce address.
           const senderEmail = (await extractSenderEmail(raw)) ?? envFrom;
           if (!senderEmail) {
-            logger.warn("No sender email found — rebuilding for relay");
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            logger.warn("No sender email found — passing through");
+            const prepared = prepareMessageForPassthroughRelay(raw);
+            await relayMessage(prepared, { from: envFrom, to: envTo });
             await recordEvent({
               senderEmail: envFrom || "(unknown)",
               recipients: envTo,
@@ -122,10 +121,10 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           if (!senderData) {
             logger.info(
               { senderEmail },
-              "No matching sender in DB — rebuilding for relay (no signature)"
+              "No matching sender in DB — passing through (no signature)"
             );
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            const prepared = prepareMessageForPassthroughRelay(raw);
+            await relayMessage(prepared, { from: envFrom, to: envTo });
             await recordEvent({
               senderEmail,
               recipients: envTo,
@@ -136,36 +135,7 @@ export async function createSmtpServer(): Promise<SMTPServer> {
             return callback();
           }
 
-          // Safety net for pathologically large messages. Rebuilding
-          // an 11MB email with deep forwarded chains via simpleParser
-          // + nodemailer produces 100,000+ MIME header objects which
-          // Exchange rejects with 554 5.6.211. Large emails are rare,
-          // the signature is only ~200KB of the total, and the user's
-          // priority for a big email is that it ACTUALLY DELIVERS —
-          // not that it has a signature. For big messages we bypass
-          // simpleParser entirely and relay the original raw bytes;
-          // relayMessage() prepends X-ESP-Processed so Exchange's
-          // transport rule won't loop it. This is a single round-trip
-          // so Received: chain accumulation isn't an issue.
-          const LARGE_MESSAGE_BYTES = 3 * 1024 * 1024;
-          if (raw.length > LARGE_MESSAGE_BYTES) {
-            logger.info(
-              { senderEmail, bytes: raw.length },
-              "Message above large-message threshold — relaying raw without signature"
-            );
-            await relayMessage(raw, { from: envFrom, to: envTo });
-            await recordEvent({
-              senderEmail,
-              senderName: senderData.sender.name,
-              recipients: envTo,
-              status: "passthrough",
-              reason: "message too large for rebuild",
-              originalBytes: raw.length,
-            });
-            return callback();
-          }
-
-          const { raw: rewritten } = await rewriteMessageWithSignature(
+          const { raw: rewritten } = await rewriteMessageWithSignatureSurgical(
             raw,
             senderData
           );

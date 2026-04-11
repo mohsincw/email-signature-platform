@@ -4,6 +4,10 @@ import { randomUUID } from "crypto";
 import type { SenderData } from "./sender-lookup";
 import { renderSignaturePngCached } from "./png-cache";
 import { logger } from "./logger";
+import {
+  injectSignatureSurgically,
+  prepareForPassthrough,
+} from "./mime-surgical";
 
 // Content-ID for the embedded signature image. We generate a fresh
 // random CID for EVERY outgoing message inside rewriteMessageWithSignature,
@@ -219,22 +223,98 @@ export async function rewriteMessageWithSignature(
 }
 
 /**
- * Pass-through rebuild for unknown / disabled senders. We parse the
- * incoming MIME, then rebuild it cleanly via nodemailer (same path
- * the signed messages use), which:
+ * New signature injection path that uses surgical MIME modification
+ * instead of full parse-and-rebuild. See apps/mail-processor/src/
+ * mime-surgical.ts for the actual byte manipulation; this function
+ * is the thin wrapper that renders the PNG, builds the HTML snippet
+ * and text footer, and delegates.
  *
- *   1. Drops all of Exchange's accumulated routing / ARC / X-MS-*
- *      headers from the previous hop — critical because otherwise
- *      Exchange treats the return trip as a loop and bounces with
- *      `554 5.4.14 Hop count exceeded`.
- *   2. Embeds the X-ESP-Processed loop-prevention header inside the
- *      proper MIME header block via nodemailer's `headers` option,
- *      which is the form Exchange's transport rule exception
- *      reliably matches. (Prepending it to the raw buffer before
- *      handing to nodemailer's `raw:` mode did NOT work in practice
- *      — Exchange still counted the pre-existing Received: hops.)
+ * Why this exists: the old rewriteMessageWithSignature used
+ * mailparser + nodemailer, which
+ *   - doubled message size on attachment re-encode (7MB → 14MB)
+ *   - produced 100,000+ header objects on 11MB forwarded chains
+ *     (Exchange rejected with 554 5.6.211)
+ *   - turned calendar invites into .ics file attachments
+ *   - mangled TNEF content into winmail.dat
  *
- * No signature is injected. The body passes through untouched.
+ * This path touches only text/html and text/plain, adds ONE new
+ * PNG part and ONE new X-ESP-Processed header. Existing attachments
+ * and MIME structure pass through byte-identical. Works for any
+ * message size.
+ */
+export async function rewriteMessageWithSignatureSurgical(
+  rawMessage: Buffer,
+  senderData: SenderData
+): Promise<{ raw: Buffer }> {
+  const { sender, settings } = senderData;
+
+  // Render the signature PNG (cached per sender).
+  const signaturePng = await renderSignaturePngCached(sender.email, {
+    senderName: sender.name,
+    senderTitle: sender.title,
+    senderPhone: sender.phone,
+    senderPhone2: sender.phone2,
+    addressLine1: settings.addressLine1,
+    addressLine2: settings.addressLine2,
+    website: settings.website,
+    logoUrl: settings.logoUrl,
+    badgeUrl: settings.badgeUrl,
+  });
+
+  // Fresh per-message CID to stop Outlook's global image cache from
+  // serving the wrong sender's signature.
+  const signatureCid = `esp-signature-${randomUUID()}@${SIGNATURE_CID_DOMAIN}`;
+
+  // Build the HTML snippet that references the CID image + disclaimer.
+  const cidImg = `<img src="cid:${signatureCid}" border="0" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="font-family:Arial;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`;
+  const disclaimerHtml = settings.disclaimer
+    ? `<br/><i style="font-family:Arial;"><span style="font-size:8.0pt;color:#333333;">${settings.disclaimer}</span></i>`
+    : "";
+  const htmlSnippet = `<br/>${cidImg}${disclaimerHtml}`;
+
+  // Build the plain-text footer.
+  const textFooterLines = ["---", sender.name];
+  if (sender.title) textFooterLines.push(sender.title);
+  if (sender.phone) textFooterLines.push(sender.phone);
+  if (sender.phone2) textFooterLines.push(sender.phone2);
+  if (settings.addressLine1) textFooterLines.push(settings.addressLine1);
+  if (settings.addressLine2) textFooterLines.push(settings.addressLine2);
+  if (settings.website) textFooterLines.push(settings.website);
+  if (settings.disclaimer) textFooterLines.push("", settings.disclaimer);
+  const textFooter = textFooterLines.join("\n");
+
+  const raw = await injectSignatureSurgically({
+    rawMessage,
+    signaturePng,
+    signatureCid,
+    htmlSnippet,
+    textFooter,
+    insertHtml: insertSignatureIntoHtml,
+    insertText: insertSignatureIntoText,
+  });
+
+  logger.debug(
+    { senderEmail: sender.email, originalBytes: rawMessage.length, rewrittenBytes: raw.length },
+    "Surgically injected signature"
+  );
+
+  return { raw };
+}
+
+/**
+ * Surgical pass-through: strip accumulated routing headers, stamp
+ * X-ESP-Processed, relay the original body byte-identical. Replaces
+ * the old rebuildMessageForRelay which used mailparser+nodemailer
+ * and mangled TNEF / calendar parts.
+ */
+export function prepareMessageForPassthroughRelay(rawMessage: Buffer): Buffer {
+  return prepareForPassthrough(rawMessage);
+}
+
+/**
+ * Legacy pass-through rebuild (kept for reference). New code should
+ * call prepareMessageForPassthroughRelay above which does surgical
+ * header manipulation without touching the body.
  */
 export async function rebuildMessageForRelay(
   rawMessage: Buffer
