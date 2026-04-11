@@ -136,6 +136,35 @@ export async function createSmtpServer(): Promise<SMTPServer> {
             return callback();
           }
 
+          // Safety net for pathologically large messages. Rebuilding
+          // an 11MB email with deep forwarded chains via simpleParser
+          // + nodemailer produces 100,000+ MIME header objects which
+          // Exchange rejects with 554 5.6.211. Large emails are rare,
+          // the signature is only ~200KB of the total, and the user's
+          // priority for a big email is that it ACTUALLY DELIVERS —
+          // not that it has a signature. For big messages we bypass
+          // simpleParser entirely and relay the original raw bytes;
+          // relayMessage() prepends X-ESP-Processed so Exchange's
+          // transport rule won't loop it. This is a single round-trip
+          // so Received: chain accumulation isn't an issue.
+          const LARGE_MESSAGE_BYTES = 3 * 1024 * 1024;
+          if (raw.length > LARGE_MESSAGE_BYTES) {
+            logger.info(
+              { senderEmail, bytes: raw.length },
+              "Message above large-message threshold — relaying raw without signature"
+            );
+            await relayMessage(raw, { from: envFrom, to: envTo });
+            await recordEvent({
+              senderEmail,
+              senderName: senderData.sender.name,
+              recipients: envTo,
+              status: "passthrough",
+              reason: "message too large for rebuild",
+              originalBytes: raw.length,
+            });
+            return callback();
+          }
+
           const { raw: rewritten } = await rewriteMessageWithSignature(
             raw,
             senderData
