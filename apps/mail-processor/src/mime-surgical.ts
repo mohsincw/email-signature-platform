@@ -298,18 +298,82 @@ function stripReceivedHeadersFromTop(raw: Buffer): Buffer {
 }
 
 /**
- * Pass-through prepare: strip accumulated routing headers, add
- * X-ESP-Processed. This is what the droplet produces for any
- * message it's not injecting a signature into (unknown sender,
- * disabled sender, already-processed loop guard).
+ * Pass-through prepare: wrap the original message in a new
+ * multipart/mixed envelope, strip accumulated routing headers from
+ * the new top-level, and stamp X-ESP-Processed. The envelope wrap
+ * is what actually unblocks poisoned messages from yesterday's
+ * loop — a new top-level Content-Type + random boundary makes
+ * Exchange's per-message hop counter treat it as a FRESH message
+ * instead of reusing the stuck state it has cached for the
+ * original envelope. Same trick used by the signed path, which is
+ * why mohsin's 11MB email finally delivered once we moved it to
+ * surgical injection.
  *
- * Crucially, does NOT parse or re-encode the body, so TNEF,
+ * Does NOT parse or re-encode the body — the original message
+ * becomes the sole sub-part of the wrapper byte-for-byte, so TNEF,
  * calendar invites, rich attachments and multi-megabyte content
- * all pass through byte-identical to what Exchange sent us.
+ * all pass through unchanged inside the wrapper.
  */
 export function prepareForPassthrough(raw: Buffer): Buffer {
-  const stripped = stripReceivedHeadersFromTop(raw);
+  const wrapped = wrapPassthroughInEnvelope(raw);
+  const stripped = stripRoutingHeadersFromTop(wrapped);
   return prependHeader(stripped, PROCESSED_HEADER, PROCESSED_HEADER_VALUE);
+}
+
+/**
+ * Wrap a raw message in a new multipart/mixed envelope containing
+ * a single sub-part with the original content. The original
+ * top-level Content-Type / Content-Transfer-Encoding / MIME-Version
+ * are lifted down into the sub-part so the inner structure is
+ * preserved exactly. This is a structural no-op for mail clients
+ * (they flatten single-child multiparts) but critically it gives
+ * the top of the message a new random boundary, which is enough
+ * to make Exchange treat the message as new in its hop-count
+ * tracking.
+ */
+function wrapPassthroughInEnvelope(raw: Buffer): Buffer {
+  const { end, sep } = findHeadersEnd(raw);
+  const sepLen = sep === "\r\n" ? 4 : 2;
+  const headersBlock = raw.slice(0, end).toString("utf-8");
+  const body = raw.slice(end + sepLen);
+
+  const boundary = `----=_esp_pt_${randomUUID().replace(/-/g, "")}`;
+
+  const originalContentType =
+    getHeaderValue(headersBlock, "Content-Type") || "text/plain";
+  const originalCte =
+    getHeaderValue(headersBlock, "Content-Transfer-Encoding") || null;
+  const originalMimeVersion =
+    getHeaderValue(headersBlock, "MIME-Version") || "1.0";
+
+  const topHeaders = removeHeaders(headersBlock, [
+    "content-type",
+    "content-transfer-encoding",
+    "mime-version",
+  ]);
+
+  const newTopHeaders =
+    topHeaders +
+    "\r\n" +
+    `MIME-Version: ${originalMimeVersion}\r\n` +
+    `Content-Type: multipart/mixed; boundary="${boundary}"`;
+
+  const firstPartHeaders =
+    `Content-Type: ${originalContentType}\r\n` +
+    (originalCte ? `Content-Transfer-Encoding: ${originalCte}\r\n` : "") +
+    `MIME-Version: ${originalMimeVersion}\r\n`;
+
+  const newBody = Buffer.concat([
+    Buffer.from(`--${boundary}\r\n${firstPartHeaders}\r\n`),
+    body,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+
+  return Buffer.concat([
+    Buffer.from(newTopHeaders),
+    Buffer.from("\r\n\r\n"),
+    newBody,
+  ]);
 }
 
 /**

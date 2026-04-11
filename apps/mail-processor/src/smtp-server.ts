@@ -160,55 +160,6 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           });
           callback();
         } catch (err) {
-          // Poisoned-message detection. If Exchange rejects our
-          // relay with:
-          //   554 5.4.14 Hop count exceeded
-          //     (the message has been in Exchange's queue long enough
-          //      that its internal hop counter is past the limit and
-          //      will NEVER recover — every retry is wasted)
-          //   554 5.6.211 Invalid MIME Content: Number of Header
-          //     objects (100001) exceeded
-          //     (a specific poisoned message where the accumulated
-          //      header count broke the MIME structure)
-          //
-          // …we tell our own SMTP listener the delivery succeeded.
-          // Exchange marks the message as done and stops retrying,
-          // which finally drains the stuck queue from the loop that
-          // ran before the surgical fix was deployed. The message
-          // itself is lost, but it would NDR in 48h anyway — this
-          // just skips the wait.
-          //
-          // Fresh messages are unaffected — they never hit these
-          // errors in the first place because the surgical path
-          // doesn't produce poisoned MIME.
-          const response =
-            (err as any)?.response ??
-            (err instanceof Error ? err.message : String(err));
-          const isPoisoned =
-            typeof response === "string" &&
-            (response.includes("5.4.14") || response.includes("5.6.211"));
-
-          if (isPoisoned) {
-            logger.warn(
-              { err, from: envFrom, to: envTo },
-              "Dropping poisoned-message retry so Exchange stops retrying it"
-            );
-            await recordEvent({
-              senderEmail: envFrom || "(unknown)",
-              recipients: envTo,
-              status: "error",
-              reason: "dropped poisoned retry",
-              errorMessage:
-                err instanceof Error ? err.message : String(err),
-              originalBytes: raw.length,
-            });
-            // IMPORTANT: callback() with no error → Exchange sees
-            // the delivery as successful and removes the message
-            // from its retry queue. This is the ONLY way to drain
-            // messages already poisoned before our surgical fix.
-            return callback();
-          }
-
           logger.error({ err, from: envFrom, to: envTo }, "Processing failed");
           await recordEvent({
             senderEmail: envFrom || "(unknown)",
