@@ -283,7 +283,7 @@ export async function rewriteMessageWithSignatureSurgical(
   if (settings.disclaimer) textFooterLines.push("", settings.disclaimer);
   const textFooter = textFooterLines.join("\n");
 
-  const raw = await injectSignatureSurgically({
+  const surgicalResult = await injectSignatureSurgically({
     rawMessage,
     signaturePng,
     signatureCid,
@@ -293,12 +293,31 @@ export async function rewriteMessageWithSignatureSurgical(
     insertText: insertSignatureIntoText,
   });
 
+  // If the source message had no text/html part (e.g. classic
+  // Outlook Rich Text / TNEF composer sends text/plain +
+  // application/ms-tnef with no HTML), the surgical path has
+  // nowhere to inject the <img src="cid:..."> reference and the
+  // PNG would appear as a dangling attachment. Fall back to the
+  // legacy nodemailer rebuild which synthesises a text/html part
+  // with the signature embedded inline.
+  if (!surgicalResult.hasHtml) {
+    logger.info(
+      { senderEmail: sender.email, originalBytes: rawMessage.length },
+      "No text/html in source message — falling back to legacy rebuild so signature is embedded"
+    );
+    return rewriteMessageWithSignature(rawMessage, senderData);
+  }
+
   logger.debug(
-    { senderEmail: sender.email, originalBytes: rawMessage.length, rewrittenBytes: raw.length },
+    {
+      senderEmail: sender.email,
+      originalBytes: rawMessage.length,
+      rewrittenBytes: surgicalResult.raw.length,
+    },
     "Surgically injected signature"
   );
 
-  return { raw };
+  return { raw: surgicalResult.raw };
 }
 
 /**

@@ -59,7 +59,7 @@ async function rewriteBodyPartsWithMailsplit(
   htmlSnippet: string,
   insertText: (text: string, footer: string) => string,
   textFooter: string
-): Promise<Buffer> {
+): Promise<{ modified: Buffer; hasHtml: boolean; hasText: boolean }> {
   // Accept a text/html or text/plain node at any depth in the tree.
   // We rewrite only the FIRST one we encounter of each so nested
   // forwarded content isn't accidentally rewritten.
@@ -100,21 +100,29 @@ async function rewriteBodyPartsWithMailsplit(
     });
   });
 
-  return new Promise<Buffer>((resolve, reject) => {
-    const splitter = new Splitter();
-    const joiner = new Joiner();
-    const input = Readable.from(rawMessage);
-    const outChunks: Buffer[] = [];
+  return new Promise<{ modified: Buffer; hasHtml: boolean; hasText: boolean }>(
+    (resolve, reject) => {
+      const splitter = new Splitter();
+      const joiner = new Joiner();
+      const input = Readable.from(rawMessage);
+      const outChunks: Buffer[] = [];
 
-    joiner.on("data", (chunk: Buffer) => outChunks.push(chunk));
-    joiner.on("end", () => resolve(Buffer.concat(outChunks)));
-    joiner.on("error", reject);
-    input.on("error", reject);
-    splitter.on("error", reject);
-    rewriter.on("error", reject);
+      joiner.on("data", (chunk: Buffer) => outChunks.push(chunk));
+      joiner.on("end", () =>
+        resolve({
+          modified: Buffer.concat(outChunks),
+          hasHtml: htmlDone,
+          hasText: textDone,
+        })
+      );
+      joiner.on("error", reject);
+      input.on("error", reject);
+      splitter.on("error", reject);
+      rewriter.on("error", reject);
 
-    input.pipe(splitter).pipe(rewriter).pipe(joiner);
-  });
+      input.pipe(splitter).pipe(rewriter).pipe(joiner);
+    }
+  );
 }
 
 /**
@@ -459,14 +467,24 @@ function wrapWithPngAttachment(
  * envelope that adds the PNG, strips accumulated routing headers
  * to avoid hop-count issues, and stamps X-ESP-Processed.
  *
+ * Returns { raw, hasHtml } where hasHtml indicates whether we
+ * actually found a text/html part to modify. If false, the caller
+ * should fall back to a path that synthesises HTML (otherwise the
+ * CID image reference is missing and the PNG shows as a dangling
+ * attachment — e.g. Outlook Rich Text / TNEF emails that come in
+ * with only text/plain + application/ms-tnef).
+ *
  * Does NOT parse or re-encode existing attachments, TNEF content,
  * or calendar invites — they pass through byte-identical.
  */
 export async function injectSignatureSurgically(
   input: SignatureInjectionInput
-): Promise<Buffer> {
+): Promise<{ raw: Buffer; hasHtml: boolean }> {
   // 1. Modify text/html + text/plain in place, preserving encoding.
-  const htmlModified = await rewriteBodyPartsWithMailsplit(
+  const {
+    modified: htmlModified,
+    hasHtml,
+  } = await rewriteBodyPartsWithMailsplit(
     input.rawMessage,
     input.insertHtml,
     input.htmlSnippet,
@@ -486,5 +504,11 @@ export async function injectSignatureSurgically(
   const stripped = stripReceivedHeadersFromTop(withPng);
 
   // 4. Stamp the loop-guard header.
-  return prependHeader(stripped, PROCESSED_HEADER, PROCESSED_HEADER_VALUE);
+  const raw = prependHeader(
+    stripped,
+    PROCESSED_HEADER,
+    PROCESSED_HEADER_VALUE
+  );
+
+  return { raw, hasHtml };
 }
