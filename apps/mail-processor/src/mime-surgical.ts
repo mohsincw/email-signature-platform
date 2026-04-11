@@ -202,27 +202,99 @@ function prependHeader(raw: Buffer, name: string, value: string): Buffer {
 }
 
 /**
- * Strip all Received: and X-Received: headers from the top-level
- * header block. Used on pass-through relays so that accumulated
- * routing headers from prior hops don't push the message past
- * Exchange's hop-count limit on the return trip.
+ * Strip all accumulated routing / hop-counting headers from the
+ * top-level header block. Used on pass-through relays so that any
+ * prior routing trail doesn't push the message past Exchange's
+ * hop-count or loop-detection limits on the return trip. Exchange's
+ * inbound connector (CloudServicesMailEnabled + IP trust) will
+ * re-create the routing headers from scratch when it accepts the
+ * message, so we're safe to blow them all away.
+ *
+ * Headers stripped:
+ *   - Received / X-Received — RFC 5321 routing trail, counted toward
+ *     the MTA hop limit.
+ *   - ARC-Seal / ARC-Message-Signature / ARC-Authentication-Results
+ *     — the ARC authenticated chain of prior hops.
+ *   - X-MS-Exchange-Organization-OriginalArrivalTime and
+ *     X-MS-Exchange-Organization-Network-Message-Id — Exchange's
+ *     internal hop-count / loop-detection identifiers.
+ *   - X-MS-Exchange-Transport-*, X-MS-Exchange-CrossTenant-*,
+ *     X-Forefront-Antispam-Report, X-Microsoft-Antispam*,
+ *     X-MS-TrafficType*, X-MS-PublicTrafficType,
+ *     X-MS-Office365-Filtering-Correlation-Id,
+ *     X-MS-Exchange-AntiSpam-*, X-Ms-Exchange-SenderADCheck,
+ *     Authentication-Results-Original — Exchange's own routing
+ *     metadata that it adds on each ingress and can reuse for loop
+ *     detection.
+ *
+ * NOT stripped:
+ *   - DKIM-Signature — must survive to keep DKIM valid.
+ *   - X-MS-Exchange-Organization-AuthAs / AuthSource — required for
+ *     CloudServicesMailEnabled-based trust on re-ingress.
+ *   - Message-ID, References, In-Reply-To — threading.
+ *   - From / To / Cc / Bcc / Subject / Date — standard metadata.
  */
-function stripReceivedHeadersFromTop(raw: Buffer): Buffer {
+const STRIP_ROUTING_HEADERS_EXACT = [
+  "received",
+  "x-received",
+  "arc-seal",
+  "arc-message-signature",
+  "arc-authentication-results",
+  "x-ms-exchange-organization-originalarrivaltime",
+  "x-ms-exchange-organization-network-message-id",
+  "x-ms-exchange-organization-scl",
+  "x-ms-exchange-organization-authmechanism",
+  "x-ms-exchange-organization-authoras",
+  "x-ms-exchange-transport-crosstenantheadersstamped",
+  "x-ms-exchange-transport-endtoendlatency",
+  "x-ms-exchange-transport-rules-loop",
+  "x-ms-publictraffictype",
+  "x-ms-traffictypediagnostic",
+  "x-ms-office365-filtering-correlation-id",
+  "x-ms-exchange-atpsafelinks-stat",
+  "x-ms-exchange-senderadcheck",
+  "x-ms-exchange-antispam-messagedata-chunkcount",
+  "x-ms-exchange-antispam-messagedata-0",
+  "x-ms-exchange-antispam-messagedata-1",
+  "x-ms-exchange-antispam-messagedata",
+  "x-ms-exchange-antispam-relay",
+  "x-forefront-antispam-report",
+  "x-microsoft-antispam",
+  "x-microsoft-antispam-mailbox-delivery",
+  "x-microsoft-antispam-message-info",
+  "authentication-results-original",
+];
+const STRIP_ROUTING_HEADERS_PREFIX = [
+  "x-ms-exchange-crosstenant-",
+];
+
+function stripRoutingHeadersFromTop(raw: Buffer): Buffer {
   const { end, sep } = findHeadersEnd(raw);
+  const sepLen = sep === "\r\n" ? 4 : 2;
   const headers = raw.slice(0, end).toString("utf-8");
-  const body = raw.slice(end);
-  const cleaned = removeHeaders(headers, [
-    "received",
-    "x-received",
-    "arc-seal",
-    "arc-message-signature",
-    "arc-authentication-results",
-  ]);
+  const body = raw.slice(end + sepLen);
+
+  const target = new Set(STRIP_ROUTING_HEADERS_EXACT);
+  const lines = parseHeaderLines(headers);
+  const filtered = lines.filter((line) => {
+    const name = getHeaderName(line);
+    if (target.has(name)) return false;
+    for (const prefix of STRIP_ROUTING_HEADERS_PREFIX) {
+      if (name.startsWith(prefix)) return false;
+    }
+    return true;
+  });
+
   return Buffer.concat([
-    Buffer.from(cleaned + sep),
-    Buffer.from(sep),
-    body.slice(sep === "\r\n" ? 4 : 2),
+    Buffer.from(filtered.join("\r\n")),
+    Buffer.from("\r\n\r\n"),
+    body,
   ]);
+}
+
+// Back-compat alias for the original name.
+function stripReceivedHeadersFromTop(raw: Buffer): Buffer {
+  return stripRoutingHeadersFromTop(raw);
 }
 
 /**
