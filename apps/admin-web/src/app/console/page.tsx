@@ -261,13 +261,14 @@ function describeEvent(ev: MailEventDto): {
       };
     case "error":
       return {
-        pillLabel: "oops",
+        pillLabel: "failed",
         tone: "danger",
         copy: (
           <>
-            Something went wrong processing an email from <strong>{who}</strong>{" "}
-            to {recipients}. The relay still forwarded it, we just
-            couldn&apos;t touch the signature.
+            Something went wrong relaying an email from{" "}
+            <strong>{who}</strong> to {recipients}. Exchange rejected it —
+            the recipient did <strong>not</strong> get this one and the
+            sender will see an NDR bounce.
           </>
         ),
       };
