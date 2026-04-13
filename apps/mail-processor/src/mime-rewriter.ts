@@ -18,6 +18,26 @@ import {
 // random CIDs sidestep this entirely.
 const SIGNATURE_CID_DOMAIN = "chaiiwala.co.uk";
 
+/**
+ * Replace common non-ASCII Unicode characters with ASCII
+ * equivalents so the text is safe to insert into an email body of
+ * ANY charset (Windows-1252, ISO-8859-1, UTF-8). The surgical
+ * rewriter uses latin1 (byte-preserving) encoding, meaning
+ * multi-byte UTF-8 sequences in our footer would produce garbled
+ * output in non-UTF-8 messages. Keeping the footer ASCII avoids
+ * this entirely.
+ */
+function sanitiseForPlainText(text: string): string {
+  return text
+    .replace(/[\u2022\u2023\u2043\u25E6\u2219]/g, "*") // bullets
+    .replace(/[\u2018\u2019\u201A\u02BC]/g, "'")         // smart single quotes
+    .replace(/[\u201C\u201D\u201E]/g, '"')                // smart double quotes
+    .replace(/[\u2013]/g, "-")                            // en-dash
+    .replace(/[\u2014]/g, "--")                           // em-dash
+    .replace(/[\u2026]/g, "...")                           // ellipsis
+    .replace(/[\u00A0]/g, " ");                            // non-breaking space
+}
+
 // Unique marker header so Exchange's transport rule exception can skip
 // re-processing messages that have already been through us. Must be a
 // "X-" header to be considered non-standard and safe.
@@ -281,7 +301,12 @@ export async function rewriteMessageWithSignatureSurgical(
   if (settings.addressLine2) textFooterLines.push(settings.addressLine2);
   if (settings.website) textFooterLines.push(settings.website);
   if (settings.disclaimer) textFooterLines.push("", settings.disclaimer);
-  const textFooter = textFooterLines.join("\n");
+  // Sanitise the text footer to ASCII so it's safe to insert into
+  // messages of any charset (Windows-1252, ISO-8859-1, UTF-8, etc.).
+  // The body is decoded/encoded as latin1 (byte-preserving) in the
+  // surgical rewriter, so non-ASCII UTF-8 sequences in our footer
+  // would show garbled in non-UTF-8 messages.
+  const textFooter = sanitiseForPlainText(textFooterLines.join("\n"));
 
   const surgicalResult = await injectSignatureSurgically({
     rawMessage,

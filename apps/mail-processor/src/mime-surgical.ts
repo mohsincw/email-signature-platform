@@ -86,17 +86,25 @@ async function rewriteBodyPartsWithMailsplit(
       }
     });
     data.decoder.on("end", () => {
-      // Decode as UTF-8. Modern Outlook and Exchange use UTF-8 for
-      // essentially all messages; legacy charsets (Windows-1252,
-      // ISO-8859-1) would pass through byte-imperfectly but the
-      // structural modification (insert before </body>) doesn't
-      // depend on charset to work.
-      const original = Buffer.concat(chunks).toString("utf-8");
+      // Use latin1 (byte-preserving) encoding. Every byte 0x00–0xFF
+      // maps 1:1 to a Unicode codepoint and back, so NO bytes are
+      // lost or replaced regardless of the original charset. This
+      // is critical because many Outlook messages use Windows-1252
+      // where smart quotes (0x91–0x94) and dashes (0x96–0x97) are
+      // valid single bytes. Decoding those as UTF-8 would replace
+      // them with U+FFFD, mangling every apostrophe in the body.
+      //
+      // Our inserted snippets (CID img tag, disclaimer, text footer)
+      // are pure ASCII so they're safe in any charset context. The
+      // text footer's address lines might have non-ASCII like "•"
+      // which we sanitise to ASCII in the caller via
+      // sanitiseForPlainText().
+      const original = Buffer.concat(chunks).toString("latin1");
       const modified =
         data.node.contentType === "text/html"
           ? insertHtml(original, htmlSnippet)
           : insertText(original, textFooter);
-      data.encoder.end(Buffer.from(modified, "utf-8"));
+      data.encoder.end(Buffer.from(modified, "latin1"));
     });
   });
 
