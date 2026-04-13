@@ -42,7 +42,6 @@ model AdminUser {
   email     String   @unique
   password  String
   name      String
-  pin       String?
   role      String   @default("admin")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

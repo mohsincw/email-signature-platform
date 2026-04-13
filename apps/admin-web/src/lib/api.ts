@@ -165,13 +165,6 @@ export const api = {
         "/admin/server-side/disable",
         { method: "POST" }
       ),
-    listUsers: () =>
-      apiFetch<AdminUserDto[]>("/admin/users"),
-    updateUserPin: (id: string, pin: string | null) =>
-      apiFetch<AdminUserDto>(`/admin/users/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ pin }),
-      }),
   },
   events: {
     list: (opts?: { since?: string; limit?: number }) => {
@@ -204,15 +197,6 @@ export interface MailEventDto {
   errorMessage: string | null;
   originalBytes: number | null;
   rewrittenBytes: number | null;
-}
-
-export interface AdminUserDto {
-  id: string;
-  email: string;
-  name: string;
-  pin: string | null;
-  role: string;
-  createdAt: string;
 }
 
 /**
