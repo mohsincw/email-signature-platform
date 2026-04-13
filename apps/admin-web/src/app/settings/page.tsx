@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Key } from "lucide-react";
 import type { GlobalSettingsDto } from "@esp/shared-types";
-import { api } from "@/lib/api";
+import { api, type AdminUserDto } from "@/lib/api";
 import { ImageDropZone } from "../components/ImageDropZone";
 
 export default function SettingsPage() {
@@ -174,6 +174,209 @@ export default function SettingsPage() {
           />
         </div>
       </form>
+
+      {/* ── Team PINs ──────────────────────────────────────── */}
+      <TeamPins />
+    </div>
+  );
+}
+
+function TeamPins() {
+  const [users, setUsers] = useState<AdminUserDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [pinInput, setPinInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.admin
+      .listUsers()
+      .then(setUsers)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSetPin = async (userId: string) => {
+    if (!/^\d{4,8}$/.test(pinInput)) {
+      alert("PIN must be 4–8 digits");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.admin.updateUserPin(userId, pinInput);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setEditingId(null);
+      setPinInput("");
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    }
+    setSaving(false);
+  };
+
+  const handleClearPin = async (userId: string) => {
+    setSaving(true);
+    try {
+      const updated = await api.admin.updateUserPin(userId, null);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="card">
+      <div className="card-title">team login PINs</div>
+      <div className="card-subtitle">
+        Set a numeric PIN for each admin user so they can log in when
+        email delivery is unavailable. PINs must be 4–8 digits.
+      </div>
+      {loading ? (
+        <p className="muted" style={{ fontSize: 13 }}>
+          Loading users…
+        </p>
+      ) : users.length === 0 ? (
+        <p className="muted" style={{ fontSize: 13 }}>
+          No admin users found.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {users.map((user) => (
+            <div
+              key={user.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "12px 16px",
+                background: "var(--karak-beige-50)",
+                borderRadius: 10,
+                border: "1px solid var(--karak-beige-200)",
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontWeight: 500,
+                    fontSize: 14,
+                    color: "var(--grey-900)",
+                  }}
+                >
+                  {user.name}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--grey-500)",
+                    marginTop: 2,
+                  }}
+                >
+                  {user.email}
+                </div>
+              </div>
+
+              {editingId === user.id ? (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={8}
+                    value={pinInput}
+                    onChange={(e) =>
+                      setPinInput(e.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder="e.g. 1234"
+                    autoFocus
+                    style={{
+                      width: 90,
+                      padding: "6px 10px",
+                      fontSize: 14,
+                      fontFamily: "ui-monospace, monospace",
+                      letterSpacing: 3,
+                      textAlign: "center",
+                      border: "1px solid var(--karak-beige-200)",
+                      borderRadius: 8,
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSetPin(user.id);
+                      if (e.key === "Escape") {
+                        setEditingId(null);
+                        setPinInput("");
+                      }
+                    }}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={saving || pinInput.length < 4}
+                    onClick={() => handleSetPin(user.id)}
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setEditingId(null);
+                      setPinInput("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {user.pin ? (
+                    <>
+                      <span
+                        style={{
+                          fontFamily: "ui-monospace, monospace",
+                          fontSize: 15,
+                          letterSpacing: 3,
+                          color: "var(--grey-800)",
+                          background: "var(--white)",
+                          padding: "4px 10px",
+                          borderRadius: 6,
+                          border: "1px solid var(--karak-beige-200)",
+                        }}
+                      >
+                        {user.pin}
+                      </span>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          setEditingId(user.id);
+                          setPinInput(user.pin || "");
+                        }}
+                      >
+                        Change
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ color: "var(--danger)" }}
+                        onClick={() => handleClearPin(user.id)}
+                        disabled={saving}
+                      >
+                        Clear
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setEditingId(user.id);
+                        setPinInput("");
+                      }}
+                    >
+                      <Key size={13} />
+                      Set PIN
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
