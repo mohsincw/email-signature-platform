@@ -2,5 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter @esp/database exec prisma generate && pnpm --filter @esp/signature-png build && pnpm --filter @esp/admin-web build",
   "installCommand": "pnpm install --frozen-lockfile=false",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "ignoreCommand": "bash -c 'if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[deploy]\"* ]]; then exit 1; else exit 0; fi'"
 }
+
