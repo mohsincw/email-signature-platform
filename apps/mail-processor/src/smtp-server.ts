@@ -1,13 +1,14 @@
 import { SMTPServer, type SMTPServerAuthentication } from "smtp-server";
 import { promises as fs } from "fs";
 import {
-  rewriteMessageWithSignature,
-  rebuildMessageForRelay,
+  rewriteMessageWithSignatureSurgical,
+  prepareMessageForPassthroughRelay,
   isAlreadyProcessed,
   extractSenderEmail,
 } from "./mime-rewriter";
 import { lookupSender } from "./sender-lookup";
 import { relayMessage } from "./relay";
+import { recordEvent } from "./event-log";
 import { logger } from "./logger";
 import { config } from "./config";
 
@@ -71,19 +72,30 @@ export async function createSmtpServer(): Promise<SMTPServer> {
         const envTo = session.envelope.rcptTo.map((r) => r.address);
 
         try {
-          // Loop prevention. Every pass-through path rebuilds the
-          // MIME via rebuildMessageForRelay so that Exchange's
-          // transport-rule exception reliably sees the
-          // X-ESP-Processed header AND the previous hop's Received:
-          // chain is dropped (otherwise Exchange bounces with
-          // 554 5.4.14 Hop count exceeded).
+          // Every path uses surgical MIME modification — we never
+          // do a full parse-and-rebuild of the body anymore.
+          // Pass-throughs only touch the header block (strip
+          // Received + stamp X-ESP-Processed). The signed path
+          // additionally modifies the text/html and text/plain
+          // content in place and wraps the message in a new
+          // multipart/related envelope that adds the PNG as a
+          // sibling. No attachment re-encoding, no TNEF mangling,
+          // no calendar flattening, no size inflation, no size
+          // limit.
           if (await isAlreadyProcessed(raw)) {
             logger.info(
               { from: envFrom, to: envTo },
-              "Message already has X-ESP-Processed header — rebuilding for relay"
+              "Message already has X-ESP-Processed header — passing through"
             );
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            const prepared = prepareMessageForPassthroughRelay(raw);
+            await relayMessage(prepared, { from: envFrom, to: envTo });
+            await recordEvent({
+              senderEmail: envFrom,
+              recipients: envTo,
+              status: "already_processed",
+              reason: "loop guard",
+              originalBytes: raw.length,
+            });
             return callback();
           }
 
@@ -92,9 +104,16 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           // sometimes the server itself or a bounce address.
           const senderEmail = (await extractSenderEmail(raw)) ?? envFrom;
           if (!senderEmail) {
-            logger.warn("No sender email found — rebuilding for relay");
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            logger.warn("No sender email found — passing through");
+            const prepared = prepareMessageForPassthroughRelay(raw);
+            await relayMessage(prepared, { from: envFrom, to: envTo });
+            await recordEvent({
+              senderEmail: envFrom || "(unknown)",
+              recipients: envTo,
+              status: "passthrough",
+              reason: "no From header",
+              originalBytes: raw.length,
+            });
             return callback();
           }
 
@@ -102,14 +121,21 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           if (!senderData) {
             logger.info(
               { senderEmail },
-              "No matching sender in DB — rebuilding for relay (no signature)"
+              "No matching sender in DB — passing through (no signature)"
             );
-            const rebuilt = await rebuildMessageForRelay(raw);
-            await relayMessage(rebuilt, { from: envFrom, to: envTo });
+            const prepared = prepareMessageForPassthroughRelay(raw);
+            await relayMessage(prepared, { from: envFrom, to: envTo });
+            await recordEvent({
+              senderEmail,
+              recipients: envTo,
+              status: "passthrough",
+              reason: "sender not in directory",
+              originalBytes: raw.length,
+            });
             return callback();
           }
 
-          const { raw: rewritten } = await rewriteMessageWithSignature(
+          const { raw: rewritten } = await rewriteMessageWithSignatureSurgical(
             raw,
             senderData
           );
@@ -124,9 +150,24 @@ export async function createSmtpServer(): Promise<SMTPServer> {
           );
 
           await relayMessage(rewritten, { from: envFrom, to: envTo });
+          await recordEvent({
+            senderEmail,
+            senderName: senderData.sender.name,
+            recipients: envTo,
+            status: "signed",
+            originalBytes: raw.length,
+            rewrittenBytes: rewritten.length,
+          });
           callback();
         } catch (err) {
           logger.error({ err, from: envFrom, to: envTo }, "Processing failed");
+          await recordEvent({
+            senderEmail: envFrom || "(unknown)",
+            recipients: envTo,
+            status: "error",
+            errorMessage: err instanceof Error ? err.message : String(err),
+            originalBytes: raw.length,
+          });
           callback(new Error("Processing failed"));
         }
       });

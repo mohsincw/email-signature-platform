@@ -166,7 +166,38 @@ export const api = {
         { method: "POST" }
       ),
   },
+  events: {
+    list: (opts?: { since?: string; limit?: number }) => {
+      const params = new URLSearchParams();
+      if (opts?.since) params.set("since", opts.since);
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      const q = params.toString();
+      return apiFetch<{
+        events: MailEventDto[];
+        stats: {
+          total: number;
+          signed: number;
+          passthrough: number;
+          already_processed: number;
+          error: number;
+        };
+      }>(`/events${q ? `?${q}` : ""}`);
+    },
+  },
 };
+
+export interface MailEventDto {
+  id: string;
+  createdAt: string;
+  senderEmail: string;
+  senderName: string | null;
+  recipients: string[];
+  status: "signed" | "passthrough" | "already_processed" | "error";
+  reason: string | null;
+  errorMessage: string | null;
+  originalBytes: number | null;
+  rewrittenBytes: number | null;
+}
 
 /**
  * Upload a File or Blob via a presigned URL and return its public URL.

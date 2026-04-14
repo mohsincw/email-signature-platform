@@ -104,6 +104,17 @@ Short version: SSH into the VPS, clone the repo, `cp .env.example .env`,
 fill in `DATABASE_URL`, `docker compose up -d --build`, then set up
 the Exchange Online connectors + transport rule from the same README.
 
+### Migrating between Vercel / Supabase accounts
+
+If you need to move an existing deployment between Vercel accounts
+(e.g. out of a colleague's Vercel-Supabase marketplace integration
+into your own standalone Supabase + Vercel), there's a step-by-step
+runbook with a one-command migration script:
+
+**→ [`docs/migration-to-new-vercel.md`](docs/migration-to-new-vercel.md)**
+
+Total downtime is ~15 seconds (a single mail-processor restart).
+
 ### Microsoft 365 routing
 
 All Exchange Online configuration (inbound connector, outbound

@@ -4,6 +4,10 @@ import { randomUUID } from "crypto";
 import type { SenderData } from "./sender-lookup";
 import { renderSignaturePngCached } from "./png-cache";
 import { logger } from "./logger";
+import {
+  injectSignatureSurgically,
+  prepareForPassthrough,
+} from "./mime-surgical";
 
 // Content-ID for the embedded signature image. We generate a fresh
 // random CID for EVERY outgoing message inside rewriteMessageWithSignature,
@@ -13,6 +17,26 @@ import { logger } from "./logger";
 // regardless of which sender actually sent the new email. Per-message
 // random CIDs sidestep this entirely.
 const SIGNATURE_CID_DOMAIN = "chaiiwala.co.uk";
+
+/**
+ * Replace common non-ASCII Unicode characters with ASCII
+ * equivalents so the text is safe to insert into an email body of
+ * ANY charset (Windows-1252, ISO-8859-1, UTF-8). The surgical
+ * rewriter uses latin1 (byte-preserving) encoding, meaning
+ * multi-byte UTF-8 sequences in our footer would produce garbled
+ * output in non-UTF-8 messages. Keeping the footer ASCII avoids
+ * this entirely.
+ */
+function sanitiseForPlainText(text: string): string {
+  return text
+    .replace(/[\u2022\u2023\u2043\u25E6\u2219]/g, "*") // bullets
+    .replace(/[\u2018\u2019\u201A\u02BC]/g, "'")         // smart single quotes
+    .replace(/[\u201C\u201D\u201E]/g, '"')                // smart double quotes
+    .replace(/[\u2013]/g, "-")                            // en-dash
+    .replace(/[\u2014]/g, "--")                           // em-dash
+    .replace(/[\u2026]/g, "...")                           // ellipsis
+    .replace(/[\u00A0]/g, " ");                            // non-breaking space
+}
 
 // Unique marker header so Exchange's transport rule exception can skip
 // re-processing messages that have already been through us. Must be a
@@ -120,15 +144,47 @@ export async function rewriteMessageWithSignature(
   const bcc = formatAddressList(parsed.bcc);
   const replyTo = formatAddressList(parsed.replyTo);
 
-  // Preserve original attachments (that aren't inline content already
-  // referenced in the HTML — those get copied through as-is).
-  const originalAttachments = (parsed.attachments || []).map((att) => ({
-    filename: att.filename,
-    content: att.content,
-    contentType: att.contentType,
-    cid: att.cid,
-    contentDisposition: (att.contentDisposition as any) || "attachment",
-  }));
+  // Preserve original attachments, separating calendar parts from
+  // regular attachments. Calendar invites are `text/calendar` MIME
+  // parts that Outlook expects to live inside the multipart/alternative
+  // alongside text/plain and text/html. If we dump them into the
+  // regular attachments array, nodemailer puts them outside the
+  // alternative boundary, which turns them into standalone .ics file
+  // attachments and breaks the inline meeting invite rendering.
+  const regularAttachments: any[] = [];
+  let calendarEvent: { method: string; content: Buffer } | undefined;
+
+  for (const att of parsed.attachments || []) {
+    if (
+      att.contentType === "text/calendar" ||
+      att.contentType === "application/ics"
+    ) {
+      // Take the first calendar part — that's the inline invite.
+      // If there's also an application/ics copy (attachment version),
+      // skip it; nodemailer's icalEvent adds one automatically.
+      if (!calendarEvent && att.contentType === "text/calendar") {
+        // Extract the METHOD from the content type params or from
+        // the VCALENDAR body itself. Outlook uses the method to
+        // decide whether to show Accept / Decline buttons.
+        const methodMatch = att.content
+          .toString()
+          .match(/METHOD:(\w+)/i);
+        calendarEvent = {
+          method: methodMatch ? methodMatch[1] : "REQUEST",
+          content: att.content,
+        };
+      }
+      // Skip — don't add calendar parts to regular attachments
+    } else {
+      regularAttachments.push({
+        filename: att.filename,
+        content: att.content,
+        contentType: att.contentType,
+        cid: att.cid,
+        contentDisposition: (att.contentDisposition as any) || "attachment",
+      });
+    }
+  }
 
   // Use nodemailer to build the outgoing MIME. We use streamTransport
   // in buffer mode so nothing goes over the wire — we just need the
@@ -154,8 +210,20 @@ export async function rewriteMessageWithSignature(
     headers: {
       [PROCESSED_HEADER]: PROCESSED_HEADER_VALUE,
     },
+    // Calendar invites go through nodemailer's dedicated icalEvent
+    // path so they stay as text/calendar inside multipart/alternative
+    // (where Outlook's meeting rendering can see them) rather than
+    // being demoted to a regular attachment.
+    ...(calendarEvent
+      ? {
+          icalEvent: {
+            method: calendarEvent.method,
+            content: calendarEvent.content,
+          },
+        }
+      : {}),
     attachments: [
-      ...originalAttachments,
+      ...regularAttachments,
       {
         filename: "signature.png",
         content: signaturePng,
@@ -175,22 +243,122 @@ export async function rewriteMessageWithSignature(
 }
 
 /**
- * Pass-through rebuild for unknown / disabled senders. We parse the
- * incoming MIME, then rebuild it cleanly via nodemailer (same path
- * the signed messages use), which:
+ * New signature injection path that uses surgical MIME modification
+ * instead of full parse-and-rebuild. See apps/mail-processor/src/
+ * mime-surgical.ts for the actual byte manipulation; this function
+ * is the thin wrapper that renders the PNG, builds the HTML snippet
+ * and text footer, and delegates.
  *
- *   1. Drops all of Exchange's accumulated routing / ARC / X-MS-*
- *      headers from the previous hop — critical because otherwise
- *      Exchange treats the return trip as a loop and bounces with
- *      `554 5.4.14 Hop count exceeded`.
- *   2. Embeds the X-ESP-Processed loop-prevention header inside the
- *      proper MIME header block via nodemailer's `headers` option,
- *      which is the form Exchange's transport rule exception
- *      reliably matches. (Prepending it to the raw buffer before
- *      handing to nodemailer's `raw:` mode did NOT work in practice
- *      — Exchange still counted the pre-existing Received: hops.)
+ * Why this exists: the old rewriteMessageWithSignature used
+ * mailparser + nodemailer, which
+ *   - doubled message size on attachment re-encode (7MB → 14MB)
+ *   - produced 100,000+ header objects on 11MB forwarded chains
+ *     (Exchange rejected with 554 5.6.211)
+ *   - turned calendar invites into .ics file attachments
+ *   - mangled TNEF content into winmail.dat
  *
- * No signature is injected. The body passes through untouched.
+ * This path touches only text/html and text/plain, adds ONE new
+ * PNG part and ONE new X-ESP-Processed header. Existing attachments
+ * and MIME structure pass through byte-identical. Works for any
+ * message size.
+ */
+export async function rewriteMessageWithSignatureSurgical(
+  rawMessage: Buffer,
+  senderData: SenderData
+): Promise<{ raw: Buffer }> {
+  const { sender, settings } = senderData;
+
+  // Render the signature PNG (cached per sender).
+  const signaturePng = await renderSignaturePngCached(sender.email, {
+    senderName: sender.name,
+    senderTitle: sender.title,
+    senderPhone: sender.phone,
+    senderPhone2: sender.phone2,
+    addressLine1: settings.addressLine1,
+    addressLine2: settings.addressLine2,
+    website: settings.website,
+    logoUrl: settings.logoUrl,
+    badgeUrl: settings.badgeUrl,
+  });
+
+  // Fresh per-message CID to stop Outlook's global image cache from
+  // serving the wrong sender's signature.
+  const signatureCid = `esp-signature-${randomUUID()}@${SIGNATURE_CID_DOMAIN}`;
+
+  // Build the HTML snippet that references the CID image + disclaimer.
+  const cidImg = `<img src="cid:${signatureCid}" border="0" alt="Chaiiwala signature" width="${SIG_WIDTH}" height="${SIG_HEIGHT}" style="font-family:Arial;width:${SIG_WIDTH}px;height:${SIG_HEIGHT}px;border:0;outline:none;text-decoration:none;" />`;
+  const disclaimerHtml = settings.disclaimer
+    ? `<br/><i style="font-family:Arial;"><span style="font-size:8.0pt;color:#333333;">${settings.disclaimer}</span></i>`
+    : "";
+  const htmlSnippet = `<br/>${cidImg}${disclaimerHtml}`;
+
+  // Build the plain-text footer.
+  const textFooterLines = ["---", sender.name];
+  if (sender.title) textFooterLines.push(sender.title);
+  if (sender.phone) textFooterLines.push(sender.phone);
+  if (sender.phone2) textFooterLines.push(sender.phone2);
+  if (settings.addressLine1) textFooterLines.push(settings.addressLine1);
+  if (settings.addressLine2) textFooterLines.push(settings.addressLine2);
+  if (settings.website) textFooterLines.push(settings.website);
+  if (settings.disclaimer) textFooterLines.push("", settings.disclaimer);
+  // Sanitise the text footer to ASCII so it's safe to insert into
+  // messages of any charset (Windows-1252, ISO-8859-1, UTF-8, etc.).
+  // The body is decoded/encoded as latin1 (byte-preserving) in the
+  // surgical rewriter, so non-ASCII UTF-8 sequences in our footer
+  // would show garbled in non-UTF-8 messages.
+  const textFooter = sanitiseForPlainText(textFooterLines.join("\n"));
+
+  const surgicalResult = await injectSignatureSurgically({
+    rawMessage,
+    signaturePng,
+    signatureCid,
+    htmlSnippet,
+    textFooter,
+    insertHtml: insertSignatureIntoHtml,
+    insertText: insertSignatureIntoText,
+  });
+
+  // If the source message had no text/html part (e.g. classic
+  // Outlook Rich Text / TNEF composer sends text/plain +
+  // application/ms-tnef with no HTML), the surgical path has
+  // nowhere to inject the <img src="cid:..."> reference and the
+  // PNG would appear as a dangling attachment. Fall back to the
+  // legacy nodemailer rebuild which synthesises a text/html part
+  // with the signature embedded inline.
+  if (!surgicalResult.hasHtml) {
+    logger.info(
+      { senderEmail: sender.email, originalBytes: rawMessage.length },
+      "No text/html in source message — falling back to legacy rebuild so signature is embedded"
+    );
+    return rewriteMessageWithSignature(rawMessage, senderData);
+  }
+
+  logger.debug(
+    {
+      senderEmail: sender.email,
+      originalBytes: rawMessage.length,
+      rewrittenBytes: surgicalResult.raw.length,
+    },
+    "Surgically injected signature"
+  );
+
+  return { raw: surgicalResult.raw };
+}
+
+/**
+ * Surgical pass-through: strip accumulated routing headers, stamp
+ * X-ESP-Processed, relay the original body byte-identical. Replaces
+ * the old rebuildMessageForRelay which used mailparser+nodemailer
+ * and mangled TNEF / calendar parts.
+ */
+export function prepareMessageForPassthroughRelay(rawMessage: Buffer): Buffer {
+  return prepareForPassthrough(rawMessage);
+}
+
+/**
+ * Legacy pass-through rebuild (kept for reference). New code should
+ * call prepareMessageForPassthroughRelay above which does surgical
+ * header manipulation without touching the body.
  */
 export async function rebuildMessageForRelay(
   rawMessage: Buffer
@@ -203,13 +371,37 @@ export async function rebuildMessageForRelay(
   const bcc = formatAddressList(parsed.bcc);
   const replyTo = formatAddressList(parsed.replyTo);
 
-  const originalAttachments = (parsed.attachments || []).map((att) => ({
-    filename: att.filename,
-    content: att.content,
-    contentType: att.contentType,
-    cid: att.cid,
-    contentDisposition: (att.contentDisposition as any) || "attachment",
-  }));
+  // Same calendar-vs-regular split as the signed path — keep
+  // text/calendar inline in multipart/alternative so Outlook shows
+  // the meeting invite properly instead of demoting it to an .ics
+  // file attachment.
+  const regularAttachments: any[] = [];
+  let calendarEvent: { method: string; content: Buffer } | undefined;
+
+  for (const att of parsed.attachments || []) {
+    if (
+      att.contentType === "text/calendar" ||
+      att.contentType === "application/ics"
+    ) {
+      if (!calendarEvent && att.contentType === "text/calendar") {
+        const methodMatch = att.content
+          .toString()
+          .match(/METHOD:(\w+)/i);
+        calendarEvent = {
+          method: methodMatch ? methodMatch[1] : "REQUEST",
+          content: att.content,
+        };
+      }
+    } else {
+      regularAttachments.push({
+        filename: att.filename,
+        content: att.content,
+        contentType: att.contentType,
+        cid: att.cid,
+        contentDisposition: (att.contentDisposition as any) || "attachment",
+      });
+    }
+  }
 
   const streamTransport = nodemailer.createTransport({
     streamTransport: true,
@@ -232,7 +424,15 @@ export async function rebuildMessageForRelay(
     headers: {
       [PROCESSED_HEADER]: PROCESSED_HEADER_VALUE,
     },
-    attachments: originalAttachments,
+    ...(calendarEvent
+      ? {
+          icalEvent: {
+            method: calendarEvent.method,
+            content: calendarEvent.content,
+          },
+        }
+      : {}),
+    attachments: regularAttachments,
   });
 
   logger.debug(
