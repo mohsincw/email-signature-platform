@@ -260,7 +260,6 @@ const STRIP_ROUTING_HEADERS_EXACT = [
   "x-ms-exchange-organization-network-message-id",
   "x-ms-exchange-organization-scl",
   "x-ms-exchange-organization-authmechanism",
-  "x-ms-exchange-organization-authoras",
   "x-ms-exchange-transport-crosstenantheadersstamped",
   "x-ms-exchange-transport-endtoendlatency",
   "x-ms-exchange-transport-rules-loop",
