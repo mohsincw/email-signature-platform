@@ -15,12 +15,22 @@
 # This is intentionally a "dead man's switch" — we only ping on
 # success, so a script bug or droplet outage also triggers an alert
 # (rather than silently failing).
+#
+# Auto-disable: after AUTO_DISABLE_FAILURE_THRESHOLD consecutive
+# failures, calls disable-relay-rule.sh to detach the Exchange
+# transport rule so mail flows direct (no signature, but delivered)
+# instead of piling up in queues. The rule must be re-enabled
+# manually with enable-relay-rule.sh once the underlying issue is
+# resolved.
 # ─────────────────────────────────────────────────────────────────────
 
 set -uo pipefail
 
 LOG="/var/log/mail-monitor.log"
+STATE_DIR="/var/lib/mail-monitor"
 ENV_FILE="${ENV_FILE:-/root/email-signature-platform/apps/mail-processor/.env}"
+
+mkdir -p "$STATE_DIR"
 
 # Load env from .env if present (for HEARTBEAT_URL, SMART_HOST_HOST, etc.)
 if [ -f "$ENV_FILE" ]; then
@@ -36,13 +46,46 @@ SMART_HOST_PORT="${SMART_HOST_PORT:-25}"
 PROBE_FROM="${PROBE_FROM:-monitor@chaiiwala.co.uk}"
 PROBE_TO="${PROBE_TO:-mohsin@chaiiwala.co.uk}"
 HEALTH_PORT="${HEALTH_PORT:-8080}"
+AUTO_DISABLE_FAILURE_THRESHOLD="${AUTO_DISABLE_FAILURE_THRESHOLD:-3}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FAIL_COUNT_FILE="$STATE_DIR/consecutive_failures"
+AUTO_DISABLED_FLAG="$STATE_DIR/auto-disabled"
 
 log() {
   echo "$(date -Is) $1" >> "$LOG"
 }
 
+read_fail_count() {
+  if [ -f "$FAIL_COUNT_FILE" ]; then
+    cat "$FAIL_COUNT_FILE"
+  else
+    echo 0
+  fi
+}
+
+# On any FAIL: increment consecutive_failures, maybe trigger auto-disable,
+# then exit non-zero (no heartbeat ping → external monitor alerts).
 fail() {
-  log "FAIL: $1"
+  local reason="$1"
+  log "FAIL: $reason"
+
+  local count
+  count=$(($(read_fail_count) + 1))
+  echo "$count" > "$FAIL_COUNT_FILE"
+  log "FAIL: consecutive failure count = $count"
+
+  if [ "$count" -ge "$AUTO_DISABLE_FAILURE_THRESHOLD" ] && [ ! -f "$AUTO_DISABLED_FLAG" ]; then
+    if [ -x "$SCRIPT_DIR/disable-relay-rule.sh" ]; then
+      log "TRIGGER: $count consecutive failures hit threshold ($AUTO_DISABLE_FAILURE_THRESHOLD) — calling disable-relay-rule.sh"
+      "$SCRIPT_DIR/disable-relay-rule.sh" >> "$LOG" 2>&1 || log "WARN: disable-relay-rule.sh exited non-zero"
+    else
+      log "WARN: would auto-disable but disable-relay-rule.sh not found or not executable"
+    fi
+  elif [ -f "$AUTO_DISABLED_FLAG" ]; then
+    log "INFO: rule already auto-disabled (since $(cat "$AUTO_DISABLED_FLAG")) — skipping"
+  fi
+
   exit 1
 }
 
@@ -98,7 +141,21 @@ if ! echo "$probe_output" | grep -qE "^<[~]? +250"; then
   fail "no 2xx response from smart host (unexpected probe output)"
 fi
 
-# ─── Ping heartbeat ─────────────────────────────────────────────────
+# ─── Success: reset failure counter and ping heartbeat ──────────────
+# Note: we do NOT auto-re-enable the rule here. If it was disabled
+# (manually or by the auto-trigger), the operator must re-enable it
+# explicitly via enable-relay-rule.sh. This avoids flapping when the
+# underlying issue is intermittent.
+prev_count=$(read_fail_count)
+if [ "$prev_count" -gt 0 ]; then
+  log "OK: probe recovered after $prev_count consecutive failure(s)"
+fi
+echo 0 > "$FAIL_COUNT_FILE"
+
+if [ -f "$AUTO_DISABLED_FLAG" ]; then
+  log "REMINDER: rule is still auto-disabled (since $(cat "$AUTO_DISABLED_FLAG")) — run enable-relay-rule.sh to re-enable"
+fi
+
 if [ -z "$HEARTBEAT_URL" ]; then
   log "OK: probe succeeded but HEARTBEAT_URL not set — no monitor configured"
   exit 0
