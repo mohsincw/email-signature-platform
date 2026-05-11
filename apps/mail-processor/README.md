@@ -348,6 +348,117 @@ docker compose run --rm certbot && docker compose restart mail-processor
 docker compose down
 ```
 
+## Monitoring & alerting
+
+The relay has a single point of failure (one droplet, one outgoing
+IP) so we run an external uptime monitor as a dead-man's-switch:
+the droplet pings the monitor every 5 min when everything is healthy
+and the monitor alerts when pings stop arriving.
+
+### What gets checked
+
+`scripts/smtp-health-probe.sh` runs every 5 min via cron and verifies:
+
+1. **mail-processor health endpoint** responds on `localhost:8080`
+   — catches container crash / app-level hang
+2. **SMTP listener** accepts a TCP connection on port 25
+   — catches port conflicts / firewall regressions
+3. **End-to-end deliverability** via `swaks --quit-after RCPT`
+   to the smart host — catches IP bans (`5.7.606`), DNS regressions,
+   smart host outages, expired certs
+
+Only when all three pass does the script ping the heartbeat URL.
+
+### One-time setup
+
+#### 1. Install swaks on the droplet
+
+```bash
+apt install -y swaks
+```
+
+#### 2. Create a heartbeat monitor
+
+Pick one (both free for this use case):
+
+**UptimeRobot** (https://uptimerobot.com):
+- New monitor → **Heartbeat**
+- Friendly name: `Chaiiwala mail relay`
+- Heartbeat interval: **10 minutes** (give the 5-min cron a 2x grace
+  window so a single late run doesn't false-alarm)
+- Alert contact: `mohsin@chaiiwala.co.uk`
+- Save and copy the heartbeat URL (looks like
+  `https://heartbeat.uptimerobot.com/m000000000-aaaaaaaaaa`)
+
+**Better Stack** (https://betterstack.com):
+- Uptime → New monitor → **Cron job / heartbeat**
+- Expected interval: **5 minutes**, grace: **5 minutes**
+- Alert contact: `mohsin@chaiiwala.co.uk`
+- Save and copy the URL
+
+#### 3. Add the URL to `.env`
+
+```bash
+nano /root/email-signature-platform/apps/mail-processor/.env
+```
+
+Add (or uncomment) at the bottom:
+
+```
+HEARTBEAT_URL=https://heartbeat.uptimerobot.com/m000000000-aaaaaaaaaa
+```
+
+Save (`Ctrl+O`, Enter, `Ctrl+X`).
+
+#### 4. Wire up cron
+
+```bash
+crontab -e
+```
+
+Add this line (alongside the existing cert-renewal entry):
+
+```
+*/5 * * * * /root/email-signature-platform/apps/mail-processor/scripts/smtp-health-probe.sh
+```
+
+Save, exit. The probe will run every 5 min from now on.
+
+#### 5. Verify it's working
+
+Trigger a probe manually:
+
+```bash
+/root/email-signature-platform/apps/mail-processor/scripts/smtp-health-probe.sh
+tail -20 /var/log/mail-monitor.log
+```
+
+You should see `OK: probe succeeded, heartbeat sent`. Check the
+monitor dashboard — it should now show as "up" and the last-seen
+timestamp should match.
+
+### Verifying alerts work end-to-end
+
+The easiest way to confirm alerts actually arrive: temporarily break
+the probe by setting an invalid `HEARTBEAT_URL` (e.g. append `-BROKEN`
+to the real one) and wait ~15 min. UptimeRobot / Better Stack should
+email `mohsin@chaiiwala.co.uk`. Restore the correct URL once verified.
+
+### What an alert looks like in practice
+
+When a real issue hits (IP ban, container crash, smart host
+unreachable):
+
+1. Cron runs at minute :00, :05, :10... → probe fails → no heartbeat ping
+2. After ~10 min of missed pings, the monitor sends an email to
+   `mohsin@chaiiwala.co.uk`
+3. You SSH in and check `tail -50 /var/log/mail-monitor.log` to see
+   which check failed (health endpoint / port 25 / smart host)
+4. Fix the underlying issue; next successful probe re-arms the monitor
+
+This trades ~10 min detection latency for full coverage with zero
+infrastructure on our side beyond the cron job.
+
 ## Troubleshooting
 
 **"Connection refused" when Exchange tries to connect**
@@ -434,3 +545,25 @@ docker compose down
 - Exchange retries delivery to our relay in a backoff if it's
   temporarily unreachable. Restart the relay and drain the queue:
   Admin center → Mail flow → Message trace → find the stuck messages.
+
+**Monitor alerts firing but everything looks fine**
+- Check `tail -50 /var/log/mail-monitor.log` for the failure reason.
+  Most common false-alarm causes:
+  - Heartbeat URL ping failing because of a transient curl timeout
+    (look for `WARN: heartbeat ping ... failed`). A single missed
+    ping per hour is normal; UptimeRobot's 10-min grace window covers
+    it. Sustained miss = real issue.
+  - Cert renewal restarting the container during the probe window —
+    health endpoint briefly unavailable. Self-resolves on next run.
+- If the probe itself is broken (regex/parsing bug), run it manually
+  with `bash -x .../smtp-health-probe.sh` to see which check fails.
+
+**No monitor alerts but mail is clearly broken**
+- Check the probe is actually running:
+  `grep CRON /var/log/syslog | grep smtp-health-probe | tail -10`
+- Check the heartbeat URL is set in `.env` and was loaded:
+  `tail -5 /var/log/mail-monitor.log` — if you see "HEARTBEAT_URL not
+  set", the cron didn't load `.env` correctly (check `ENV_FILE` path
+  in the script matches your repo location).
+- Verify the monitor itself is configured: log into UptimeRobot /
+  Better Stack and check the last-seen timestamp.
