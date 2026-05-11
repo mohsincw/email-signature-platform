@@ -459,6 +459,163 @@ unreachable):
 This trades ~10 min detection latency for full coverage with zero
 infrastructure on our side beyond the cron job.
 
+## Auto-disable on sustained failure (fail-open)
+
+A single broken droplet shouldn't throttle outbound mail
+organisation-wide. After `AUTO_DISABLE_FAILURE_THRESHOLD` consecutive
+probe failures (default: 3 = ~15 min on a 5-min cron), the probe
+script invokes `disable-relay-rule.sh`, which calls Exchange Online to
+flip the `Chaiiwala Signature Relay` transport rule to **Disabled**.
+
+Effect: Exchange stops routing mail to the droplet, so outbound mail
+flows direct (no signature applied) until the rule is re-enabled.
+Better degraded than blocked.
+
+The trigger fires **once per outage** — once the flag at
+`/var/lib/mail-monitor/auto-disabled` exists, subsequent failed
+probes log a reminder but don't repeat the disable call. The probe
+also **does not** auto-re-enable on recovery; an operator must run
+`enable-relay-rule.sh` after confirming the underlying issue is
+fixed. This avoids flapping when the issue is intermittent.
+
+The disable script also POSTs a `/fail` ping to Healthchecks with a
+descriptive body, so the resulting alert email tells you exactly
+what was disabled and how to re-enable.
+
+### Manual control
+
+```bash
+# Disable now (e.g. for planned maintenance)
+/root/email-signature-platform/apps/mail-processor/scripts/disable-relay-rule.sh
+
+# Re-enable after fixing whatever broke
+/root/email-signature-platform/apps/mail-processor/scripts/enable-relay-rule.sh
+
+# Check current rule state without changing it
+pwsh -File /root/email-signature-platform/apps/mail-processor/scripts/exchange-rule-control.ps1 -Action Status
+```
+
+### Azure AD app setup (one-time)
+
+The disable/enable scripts authenticate to Exchange Online using a
+**certificate-based app-only credential**, so no admin password is
+ever stored on the droplet.
+
+#### 1. Install PowerShell + Exchange module on the droplet
+
+```bash
+# PowerShell Core (Microsoft repo)
+apt install -y wget apt-transport-https
+wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+dpkg -i packages-microsoft-prod.deb
+apt update && apt install -y powershell
+
+# Exchange Online module (run inside pwsh)
+pwsh -Command "Install-Module -Name ExchangeOnlineManagement -Force -Scope AllUsers"
+```
+
+#### 2. Generate the certificate on the droplet
+
+```bash
+mkdir -p /etc/mail-relay
+chmod 700 /etc/mail-relay
+cd /etc/mail-relay
+
+# 2-year self-signed cert + matching .pfx + .cer (public key only)
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout exchange-app.key \
+  -out exchange-app.cer \
+  -days 730 \
+  -subj "/CN=mail-relay-rule-manager"
+
+openssl pkcs12 -export \
+  -inkey exchange-app.key \
+  -in exchange-app.cer \
+  -out exchange-app.pfx \
+  -passout pass:
+
+chmod 600 exchange-app.*
+```
+
+You now have:
+- `exchange-app.pfx` — private key + cert (used by the script, kept on droplet)
+- `exchange-app.cer` — public key only (uploaded to Azure in the next step)
+
+#### 3. Register the Azure AD app
+
+In https://portal.azure.com:
+
+1. **Microsoft Entra ID → App registrations → + New registration**
+2. Name: `Mail relay rule manager`
+3. **Supported account types**: *Accounts in this organizational directory only (Single tenant)*
+4. Leave Redirect URI blank
+5. Register, then on the app's Overview page note:
+   - **Application (client) ID** → goes in `EXCHANGE_APP_ID`
+   - **Directory (tenant) ID** → goes in `EXCHANGE_APP_TENANT`
+
+#### 4. Upload the certificate to the app
+
+1. App's left sidebar → **Certificates & secrets → Certificates → Upload certificate**
+2. Browse to the `.cer` file (you'll need to download `/etc/mail-relay/exchange-app.cer` from the droplet — `scp root@167.172.49.118:/etc/mail-relay/exchange-app.cer .`)
+3. Upload, no description needed
+
+#### 5. Grant the Exchange permission
+
+1. App's left sidebar → **API permissions → + Add a permission**
+2. Tab: **APIs my organization uses** → search `Office 365 Exchange Online`
+3. **Application permissions** → check **Exchange.ManageAsApp**
+4. Add permissions
+5. Click **Grant admin consent for Chaiiwala** (requires Global Admin)
+
+#### 6. Assign the app an Exchange admin role
+
+The `Exchange.ManageAsApp` permission alone isn't enough — the app's
+service principal also needs an Exchange admin role. Add it via
+PowerShell on any Windows machine connected to Exchange Online:
+
+```powershell
+Connect-ExchangeOnline -UserPrincipalName your-admin@chaiiwala.co.uk
+
+# Assign Transport role group (least privilege for transport rules)
+$svcPrincipal = Get-ServicePrincipal -DisplayName "Mail relay rule manager"
+Add-RoleGroupMember -Identity "Transport Hygiene" -Member $svcPrincipal.Id
+```
+
+If `Transport Hygiene` is too narrow and disable still fails with
+"insufficient permissions", broaden to `Organization Management`
+(equivalent to Exchange admin):
+
+```powershell
+Add-RoleGroupMember -Identity "Organization Management" -Member $svcPrincipal.Id
+```
+
+#### 7. Configure the droplet
+
+Edit `apps/mail-processor/.env` on the droplet and fill in:
+
+```
+EXCHANGE_APP_ID=<the client ID from step 3>
+EXCHANGE_APP_TENANT=<the tenant ID from step 3>
+EXCHANGE_APP_CERT_PATH=/etc/mail-relay/exchange-app.pfx
+EXCHANGE_APP_CERT_PASSWORD=
+```
+
+#### 8. Smoke test
+
+```bash
+# Should print "STATE: Enabled"
+pwsh -File /root/email-signature-platform/apps/mail-processor/scripts/exchange-rule-control.ps1 -Action Status
+
+# Then test the full disable/enable round-trip
+/root/email-signature-platform/apps/mail-processor/scripts/disable-relay-rule.sh
+# → check Exchange admin center, rule should now show Disabled
+/root/email-signature-platform/apps/mail-processor/scripts/enable-relay-rule.sh
+# → rule back to Enabled
+```
+
+If the smoke test passes, the auto-disable trigger is now armed and
+will fire on its own after 3 consecutive probe failures.
+
 ## Troubleshooting
 
 **"Connection refused" when Exchange tries to connect**
@@ -567,3 +724,32 @@ infrastructure on our side beyond the cron job.
   in the script matches your repo location).
 - Verify the monitor itself is configured: log into UptimeRobot /
   Better Stack and check the last-seen timestamp.
+
+**Auto-disable fired but the rule is still showing Enabled in Exchange**
+- `tail -100 /var/log/mail-monitor.log` and look for the
+  `[disable-rule]` lines. The pwsh exit code and any error output is
+  written there. Common causes:
+  - Cert expired (`Get-PfxCertificate` error). Regenerate per
+    "Azure AD app setup" step 2 and re-upload to Azure.
+  - App's service principal missing the Exchange admin role
+    (returns "User does not have permission"). Re-run step 6 of
+    the Azure AD setup.
+  - `EXCHANGE_RULE_NAME` typo — the value in `.env` must match the
+    rule name exactly (case-sensitive). Check with `Get-TransportRule`.
+- The flag at `/var/lib/mail-monitor/auto-disabled` will exist if
+  the script *thought* it disabled. If the rule is actually still
+  enabled but the flag exists, manually remove the flag with
+  `rm /var/lib/mail-monitor/auto-disabled` so the next failure can
+  retry the disable.
+
+**Rule got auto-disabled but the underlying issue was a transient blip**
+- Expected behaviour — we explicitly chose manual re-enable to avoid
+  flapping. After confirming the probe is OK again
+  (`/root/email-signature-platform/apps/mail-processor/scripts/smtp-health-probe.sh`
+  returns 0 and you see `OK:` in the log), run
+  `enable-relay-rule.sh` to re-arm.
+
+**Want to disable the auto-disable behaviour entirely**
+- Set `AUTO_DISABLE_FAILURE_THRESHOLD=999` in `.env`. The probe will
+  still alert on failures via the missed heartbeat, but won't ever
+  call the disable script.
